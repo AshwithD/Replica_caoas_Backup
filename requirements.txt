@@ -1,0 +1,24 @@
+django_celery_beat
+pdfkit
+celery
+djangorestframework
+django-cors-headers
+redis
+mysqlclient
+Pillow
+django_extensions
+gspread
+oauth2client
+cryptography
+django-filter
+pandas
+jwt
+reportlab
+weasyprint
+python -m pip install django-filter
+python -m pip install djangorestframework
+pip install django
+python -m pip install django-cors-headers
+python -m pip install mysqlclient
+python -m pip install "Django==5.1.14"
+python -m pip install whitenoise

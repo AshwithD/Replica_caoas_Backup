@@ -1,0 +1,332 @@
+/* =========================================
+   BASE — let html/body fill viewport but
+   NOT clip content. Scroll happens inside
+   AppLayout's Content div, not on body.
+   ========================================= */
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  /* DO NOT set overflow:hidden here — it kills all page scroll */
+}
+ 
+#root {
+  height: 100%;
+}
+ 
+/* =========================================
+   HIDE SCROLLBARS VISUALLY — scroll still works
+   ========================================= */
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+*::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+ 
+/* =========================================
+   CHAT ROOT — manages its own internal scroll
+   ========================================= */
+.chat-root {
+  height: 100dvh;
+  overflow: hidden;
+}
+ 
+/* =========================================
+   HIDE-SCROLLBAR UTILITY CLASS
+   ========================================= */
+.hide-scrollbar {
+  overflow-y: scroll;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+ 
+/* =========================================
+   ANT DESIGN — CALENDAR
+   ========================================= */
+.ant-picker-cell-inner .ant-picker-calendar-date-value {
+  display: none !important;
+}
+ 
+/* =========================================
+   ANT DESIGN — MODAL
+   ========================================= */
+.ant-modal {
+  max-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+.ant-modal-content {
+  flex: 1;
+  overflow: auto;
+  max-height: calc(100vh - 100px);
+}
+ 
+/* =========================================
+   ANT DESIGN — TABLE
+   ========================================= */
+.custom-employee-table .ant-table-thead > tr > th {
+  padding: 7px 2px !important;
+  vertical-align: middle;
+  text-align: left;
+}
+ 
+.ant-table-thead > tr > th {
+  padding: 2px 2px !important;
+  font-size: 14px;
+}
+ 
+.ant-table-cell {
+  padding: 2px 2px !important;
+  font-size: 12px;
+  text-align: center !important;
+}
+ 
+.ant-table-thead .actions-header {
+  text-align: center !important;
+}
+ 
+.ant-table-body {
+  overflow-y: auto !important;
+  overflow-x: auto !important;
+}
+ 
+.ant-table-thead > tr > th.ant-table-cell-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  padding: 0 !important;
+}
+ 
+.ant-table-header {
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+  overflow: visible !important;
+}
+ 
+.ant-table-fixed-left .ant-table-cell {
+  background: #fff !important;
+  position: relative;
+  z-index: 3 !important;
+}
+ 
+.ant-table-tbody > tr:hover > td {
+  background: #e6f4ff !important;
+}
+ 
+.ant-table-fixed-left {
+  background: #fff !important;
+}
+ 
+/* =========================================
+   ANT DESIGN — LAYOUT
+   Prevent Ant's defaults from fighting
+   AppLayout's explicit height management
+   ========================================= */
+.ant-layout {
+  min-height: 0 !important;
+}
+.ant-layout-content {
+  min-height: 0 !important;
+}
+ 
+/* =========================================
+   ANT DESIGN — TABS
+   ========================================= */
+.ant-tabs-card > .ant-tabs-nav .ant-tabs-tab {
+  border-radius: 0 !important;
+}
+.ant-tabs-tab {
+  border-radius: 0 !important;
+}
+ 
+/* =========================================
+   ANT DESIGN — SELECT / INPUT
+   ========================================= */
+.ant-select-selector {
+  border-radius: 8px !important;
+}
+.ant-select-selection-placeholder {
+  color: #444 !important;
+}
+ 
+/* =========================================
+   GLOBAL PLACEHOLDERS
+   ========================================= */
+::placeholder {
+  color: #444 !important;
+  opacity: 1;
+}
+.ant-input::placeholder {
+  color: #444 !important;
+}
+.ant-picker-input input::placeholder {
+  color: #444 !important;
+}
+ 
+/* =========================================
+   COMPACT FORM
+   ========================================= */
+.compact-form .ant-form-item {
+  margin-bottom: 13px;
+}
+ 
+/* =========================================
+   FIXED WIDTH DROPDOWNS
+   ========================================= */
+.fixed-select { width: 220px; }
+ 
+.fixed-select .ant-select-selector {
+  height: 32px !important;
+  min-height: 32px !important;
+  max-height: 32px !important;
+  display: flex !important;
+  align-items: center !important;
+  overflow: hidden;
+}
+.fixed-select .ant-select-selection-overflow {
+  flex-wrap: nowrap !important;
+}
+.fixed-select .ant-select-selection-item {
+  max-width: 150px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+ 
+/* =========================================
+   ANIMATIONS
+   ========================================= */
+@keyframes pop-in {
+  0%   { transform: scale(0);   opacity: 0; }
+  60%  { transform: scale(1.1); opacity: 1; }
+  100% { transform: scale(1);   opacity: 1; }
+}
+.success-icon-animated {
+  animation: pop-in 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+ 
+/* =========================================
+   APP COMPONENT
+   ========================================= */
+.App { text-align: center; }
+.App-logo { height: 40vmin; pointer-events: none; }
+ 
+@media (prefers-reduced-motion: no-preference) {
+  .App-logo { animation: App-logo-spin infinite 20s linear; }
+}
+ 
+.App-header {
+  background-color: #282c34;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(10px + 2vmin);
+  color: white;
+}
+.App-link { color: #61dafb; }
+ 
+@keyframes App-logo-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+ 
+/* =========================================
+   COMING SOON PAGE
+   ========================================= */
+.coming-soon-container {
+  height: 100vh;
+  width: 100%;
+  background: linear-gradient(-45deg, #fdfbfb, #ebedee, #dfe9f3, #f5f7fa);
+  background-size: 400% 400%;
+  animation: gradientShift 15s ease infinite;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-family: 'Segoe UI', sans-serif;
+}
+ 
+@keyframes gradientShift {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+ 
+.coming-soon-card {
+  background-color: rgba(255, 255, 255, 0.8);
+  padding: 3rem;
+  border-radius: 1.5rem;
+  text-align: center;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
+  max-width: 480px;
+  width: 90%;
+}
+.coming-icon  { width: 50px; height: 50px; color: #4a4a4a; margin-bottom: 1rem; }
+.coming-title { font-size: 2.5rem; font-weight: bold; color: #2c3e50; margin-bottom: 0.5rem; }
+.coming-subtitle { font-size: 1.1rem; color: #555; margin-bottom: 2rem; }
+ 
+.coming-button {
+  background-color: #4a90e2;
+  color: white;
+  border: none;
+  padding: 0.75rem 2rem;
+  font-size: 1rem;
+  border-radius: 50px;
+  cursor: pointer;
+  transition: background 0.3s ease;
+}
+.coming-button:hover { background-color: #357ABD; }
+ 
+/* =========================================
+   PDF / EMPLOYEE WORK DASHBOARD
+   ========================================= */
+.pdf-header-right { display: inline-block; text-align: right; }
+.pdf-header-right img { display: block; margin-left: auto; margin-bottom: 6px; }
+ 
+.pdf-time { display: block; white-space: nowrap; font-size: 11px; line-height: 1.2; }
+.pdf-logo { height: 55px; margin-bottom: 6px; }
+ 
+.pdf-mode .no-print,
+.pdf-mode button,
+.pdf-mode .ant-btn,
+.pdf-mode .anticon { display: none !important; visibility: hidden !important; }
+.pdf-mode .ant-space { display: none !important; }
+ 
+.pdf-mode {
+  background: #ffffff;
+  border: 2px solid #222;
+  padding: 18px;
+  box-sizing: border-box;
+}
+ 
+.pdf-report-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid #444;
+}
+.pdf-report-header .left,
+.pdf-report-header .right { display: flex; align-items: center; gap: 12px; }
+.pdf-report-header .title { font-size: 20px; font-weight: 600; }
+.pdf-report-header .sub   { font-size: 12px; color: #666; }
+.pdf-report-header .time  { font-size: 11px; color: #888; }
+ 
+.pdf-wrapper { padding: 16px; }
+ 
+.pdf-footer {
+  margin-top: 18px;
+  padding-top: 10px;
+  border-top: 2px solid #444;
+  text-align: center;
+  font-size: 11px;
+  color: #555;
+}

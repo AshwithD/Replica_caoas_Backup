@@ -1,0 +1,27 @@
+/* Make calendar modern and clean */
+.react-calendar {
+  border: none !important;
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  padding: 10px;
+  font-family: 'Inter', sans-serif;
+}
+
+/* Highlight weekends */
+.react-calendar__month-view__days__day--weekend {
+  color: #e63946 !important;
+  font-weight: 600;
+}
+
+/* Selected day */
+.react-calendar__tile--active {
+  background: #1677ff !important;
+  color: white !important;
+  border-radius: 8px;
+}
+
+/* Hover effect */
+.react-calendar__tile:hover {
+  background: #f0f7ff !important;
+  border-radius: 8px;
+}

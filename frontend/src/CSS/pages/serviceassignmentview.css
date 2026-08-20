@@ -1,0 +1,103 @@
+.masonry {
+  column-count: 4;          /* desktop */
+  column-gap: 16px;
+}
+
+.masonry-item {
+  break-inside: avoid;
+  margin-bottom: 16px;
+}
+
+/* Responsive */
+@media (max-width: 1200px) {
+  .masonry {
+    column-count: 3;
+  }
+}
+
+@media (max-width: 768px) {
+  .masonry {
+    column-count: 2;
+  }
+}
+
+@media (max-width: 480px) {
+  .masonry {
+    column-count: 1;
+  }
+}
+
+/* ===== TREE LINES ===== */
+
+.tree-node {
+  position: relative;
+  padding-left: 20px;
+}
+
+/* vertical line */
+.tree-node::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 8px;
+  width: 1px;
+  height: 100%;
+  background: #d9d9d9;
+}
+
+/* horizontal connector */
+.tree-label {
+  position: relative;
+  padding-left: 16px;
+}
+
+.tree-label::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 12px;
+  height: 1px;
+  background: #d9d9d9;
+}
+
+/* children container */
+.tree-children {
+  margin-left: 20px;
+}
+
+/* remove vertical line for last child */
+.tree-node.last::before {
+  height: 50%;
+}
+
+/* leaf nodes */
+.tree-leaf {
+  position: relative;
+  padding-left: 32px;
+}
+
+.tree-leaf::before {
+  content: "";
+  position: absolute;
+  top: 12px;
+  left: 8px;
+  width: 12px;
+  height: 1px;
+  background: #d9d9d9;
+}
+
+.tree-leaf::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 8px;
+  width: 1px;
+  height: 100%;
+  background: #d9d9d9;
+}
+
+/* last leaf cleanup */
+.tree-leaf.last::after {
+  height: 12px;
+}

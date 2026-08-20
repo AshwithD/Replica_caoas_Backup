@@ -1,0 +1,88 @@
+/* Glassy black modal */
+.profile-modal .ant-modal-content {
+  background: #000 !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-radius: 16px;
+  color: #fff;
+  padding: 20px;
+  width: 20;
+}
+
+.profile-modal .ant-input-password input {
+  color: #000 !important;
+}
+
+/* Remove default header/footer backgrounds */
+.profile-modal .ant-modal-header,
+.profile-modal .ant-modal-footer {
+  background: transparent !important;
+  border: none !important;
+}
+
+.profile-modal .ant-modal-title {
+  color: #fff;
+  font-weight: 600;
+}
+
+/* ✅ Make all form labels white */
+.profile-modal .ant-form-item-label > label {
+  color: #fff !important;
+  font-weight: 500;
+}
+
+/* ✅ Make Ant Design Typography titles/labels white */
+.profile-modal .ant-typography,
+.profile-modal .ant-typography-secondary,
+.profile-modal h5,
+.profile-modal h4 {
+  color: #fff !important;
+}
+
+/* ✅ Input styling for glassy theme */
+.profile-modal .ant-input,
+.profile-modal .ant-input-password input {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+/* ✅ Placeholder color */
+.profile-modal .ant-input::placeholder,
+.profile-modal .ant-input-password input::placeholder {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* Avatar + text center */
+.profile-container {
+  text-align: center;
+  color: #fff;
+}
+
+.profile-info {
+  margin-top: 20px;
+  text-align: left;
+}
+
+.profile-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 20px;
+  gap: 10px;
+}
+
+/* 🌟 Neon Glow Button for Update */
+.profile-modal .ant-btn-primary {
+  background: linear-gradient(135deg, #6a11cb, #2575fc);
+  border: none;
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 0 12px rgba(37, 117, 252, 0.7), 0 0 20px rgba(106, 17, 203, 0.6);
+  transition: all 0.3s ease;
+}
+
+.profile-modal .ant-btn-primary:hover {
+  background: linear-gradient(135deg, #2575fc, #6a11cb);
+  box-shadow: 0 0 18px rgba(106, 17, 203, 0.9), 0 0 28px rgba(37, 117, 252, 0.8);
+  transform: scale(1.03);
+}
