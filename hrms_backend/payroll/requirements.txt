@@ -1,0 +1,9 @@
+# payroll module — additional Python packages beyond the main project's
+# requirements.txt. Install with: pip install -r hrms_backend/payroll/requirements.txt
+
+openpyxl>=3.1          # Excel batch upload/export (excel_parser.py, views.py exports)
+celery>=5.3             # async bulk payslip emails (tasks.py) — see README "Celery" section
+python-dotenv>=1.0      # loads payroll/.env for Payroll's own email credentials (tasks.py)
+reportlab>=4.0          # payslip PDF generation (pdf_generator.py)
+Pillow>=10.0             # Company.logo ImageField processing
+pip install svglib pillow

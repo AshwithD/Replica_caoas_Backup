@@ -1,0 +1,73 @@
+/*
+  pages/payroll/_kit/theme.css
+
+  The payroll UI (ported from a newer version of CAOAS) is built against a
+  CSS custom-property design-token system that isn't present in this
+  project backup's global index.css/App.css yet. Rather than touch those
+  shared files, every token it needs is defined here and scoped to
+  `.payroll-scope` (the wrapper each payroll page renders inside), so
+  nothing outside pages/payroll is affected.
+*/
+
+.payroll-scope {
+  --text-strong: #0f172a;
+  --text-primary: #1e293b;
+  --text-body: #334155;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --text-subtle: #94a3b8;
+  --text-tertiary: #94a3b8;
+  --text-faint: #cbd5e1;
+  --text-white: #ffffff;
+
+  --surface-1: #ffffff;
+  --surface-2: #f8fafc;
+  --surface-3: #f1f5f9;
+  --surface-5: #e2e8f0;
+  --surface-8: #cbd5e1;
+
+  --border-1: #f8fafc;
+  --border-2: #f1f5f9;
+  --border-3: #e2e8f0;
+  --border-4: #cbd5e1;
+  --border-5: #94a3b8;
+
+  --sidebar-bg: #001f3f;
+  --table-header-bg: #f8fafc;
+  --modal-panel-bg: #ffffff;
+
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.08);
+  --shadow-xl: 0 20px 40px rgba(15, 23, 42, 0.16);
+
+  --blue-bg: #eff6ff;         --blue-bg-subtle: #f5f9ff;    --blue-bg-strong: #dbeafe;
+  --blue-border: #bfdbfe;     --blue-solid: #2563eb;        --blue-text: #1d4ed8;
+  --blue-text-strong: #1e3a8a;
+
+  --green-bg: #f0fdf4;        --green-bg-subtle: #f6fef9;   --green-bg-strong: #dcfce7;
+  --green-border: #bbf7d0;    --green-solid: #16a34a;       --green-solid-dark: #15803d;
+  --green-text: #15803d;      --green-text-strong: #14532d;
+
+  --amber-bg: #fffbeb;        --amber-bg-subtle: #fffdf5;   --amber-bg-strong: #fef3c7;
+  --amber-border: #fde68a;    --amber-solid: #d97706;       --amber-text: #b45309;
+  --amber-text-strong: #92400e;
+
+  --red-bg: #fef2f2;          --red-bg-subtle: #fffafa;     --red-bg-strong: #fee2e2;
+  --red-border: #fecaca;      --red-solid: #dc2626;         --red-text: #b91c1c;
+  --red-text-strong: #991b1b;
+
+  --purple-bg: #faf5ff;       --purple-bg-subtle: #fdfbff;  --purple-bg-strong: #f3e8ff;
+  --purple-border: #e9d5ff;   --purple-text: #7e22ce;       --purple-text-strong: #581c87;
+
+  --chip-blue-wash: #eff6ff;   --chip-blue-icon: #2563eb;
+  --chip-green-wash: #f0fdf4;  --chip-green-icon: #16a34a;
+  --chip-amber-wash: #fffbeb;  --chip-amber-icon: #d97706;
+  --chip-purple-wash: #faf5ff; --chip-purple-icon: #7e22ce;
+  --chip-red-icon: #dc2626;
+
+  /* Subtle light-mode glassmorphism tokens for card surfaces.
+     Kept as dedicated --glass-* tokens (not a redefinition of
+     --surface-1) so only components that opt in are affected;
+     everything else (modals, headers, etc.) keeps a solid surface. */
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-blur: blur(8px);
+}

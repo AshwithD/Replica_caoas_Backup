@@ -20,5 +20,6 @@ urlpatterns = [
 
     # ─── Future Apps ──────────────────────────────────────────────────────
     # path('api/indirect-tax/', include('indirect_tax.urls')),
+    path('api/payroll/', include('payroll.urls')),
 
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

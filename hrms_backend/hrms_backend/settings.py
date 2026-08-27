@@ -28,6 +28,7 @@ INSTALLED_APPS = [
     'account',
     'employee',
     'clients',
+    'payroll',
     # 'indirect_tax',     # ← Your new app
 ]
 
@@ -212,3 +213,13 @@ LOCAL_ENCRYPT_KEY = os.environ.get(
     'HRMS_LOCAL_ENCRYPT_KEY',
     'kuqk1C8S2lPPOYAK3d8TqIqXiZcnk3_IUTnc3SGCiVE='
 )
+
+
+
+# celery -->new 
+# CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://localhost:6379/0')
+# CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://localhost:6379/1')
+
+CELERY_BROKER_URL = 'redis://localhost:6379/0'
+CELERY_RESULT_BACKEND = 'redis://localhost:6379/1'
+CELERY_REDIS_BACKEND_USE_SSL = False

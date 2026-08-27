@@ -1,0 +1,11 @@
+# payroll module
+__pycache__/
+*.pyc
+migrations/__pycache__/
+
+# payroll's own email credentials — never commit
+.env
+
+# generated payslip PDFs / uploaded logos / temp exports, if ever written to disk
+/media/payroll/
+/tmp/payroll_exports/

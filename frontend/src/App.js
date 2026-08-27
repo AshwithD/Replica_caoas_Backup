@@ -21,6 +21,9 @@ const STTRecords           = lazy(() => import('./pages/clients/ClientManagement
 const ClientManagementPage = lazy(() => import('./pages/clients/ClientManagement/ClientManagementPage'));
 const ComingSoon           = lazy(() => import('./pages/ComingSoon'));
 
+// new
+const PayrollRoutes = lazy(() => import('./pages/payroll/PayrollRoutes'));
+
 // Auth
 const SendOTP     = lazy(() => import('./pages/SendOTP'));
 const VerifyOTP   = lazy(() => import('./pages/VerifyOTP'));
@@ -123,6 +126,15 @@ function App() {
                     <Route path="/coming-soon" element={<Suspense fallback={<PageLoader />}><ComingSoon /></Suspense>} />
                     <Route path="/"            element={<HomeRedirect />} />
                     <Route path="*"            element={<div style={{padding:40,textAlign:'center'}}>404 - Page Not Found</div>} />
+
+                    {/* Payroll */}
+                    <Route path="/payroll/*" element={
+                      <Suspense fallback={<PageLoader />}>
+                        <PrivateRoute allowedRoles={['Admin','HR','Founder']}>
+                          <PayrollRoutes />
+                        </PrivateRoute>
+                      </Suspense>
+                    } />
 
                   </Routes>
                 </AppLayout>
