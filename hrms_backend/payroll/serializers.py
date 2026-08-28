@@ -394,26 +394,10 @@ class EmailLogSerializer(serializers.ModelSerializer):
         return getattr(obj.sent_by, "full_name", "") or obj.sent_by.get_username()
 
 # ── Ledger adjustments (Comp-Off / Leave) ─────────────────────────────────
-# The original payroll module read/wrote these through an `employees` app
-# "Employee Detail" page that isn't part of this project backup — only the
-# CompOffAdjustment / LeaveAdjustment models themselves came across. This
-# minimal serializer pair (+ the ViewSets in views.py) is new, added here
-# inside the payroll module so the BatchReview ledger-adjustment UI has
-# something real to call.
-
-class CompOffAdjustmentSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = CompOffAdjustment
-        fields = ["id", "employee", "amount", "reason", "applied_in_record", "created_by", "created_at"]
-        read_only_fields = ["id", "applied_in_record", "created_by", "created_at"]
-
-
-class LeaveAdjustmentSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = LeaveAdjustment
-        fields = ["id", "employee", "amount", "reason", "applied_in_record", "created_by", "created_at"]
-        read_only_fields = ["id", "applied_in_record", "created_by", "created_at"]
-
+# CompOffAdjustmentSerializer / LeaveAdjustmentSerializer (with
+# created_by_name) are defined earlier in this file, alongside the other
+# ledger adjustment serializers — see SalaryAdvanceAdjustmentSerializer /
+# OnHoldAdjustmentSerializer above.
 
 # ── Client profile ─────────────────────────────────────────────────────────
 

@@ -4,16 +4,16 @@ import { useSearchParams } from "react-router-dom";
 import {
   Download, FileText, TrendingUp, Wallet, Calendar, Pencil,
   User, Info as InfoIcon, Layers, Receipt, Briefcase,
-  Building2, Mail, CircleDot, IndianRupee, Clock, CalendarClock, Lock,
+  Building2, Mail, CircleDot, IndianRupee, Clock, CalendarClock, Lock, History,
 } from "lucide-react";
 import { Badge, Button, Card, ErrorState, Skeleton } from "../_kit/components/primitives";
 import Breadcrumb from "../_kit/components/Breadcrumb";
 import { formatCurrency, formatDateTime, MONTHS, unwrapList, useSmartBack } from "../_kit/utils/utils";
 import { api, apiPath } from "../_kit/api/client";
-import { useClients, useEmployeeRecords, usePendingAdjustments, useSalaryStructureHistory, useAppMutations } from "../_kit/hooks/hooks";
+import { useAdjustmentHistory, useClients, useEmployeeRecords, usePendingAdjustments, useSalaryStructureHistory, useAppMutations } from "../_kit/hooks/hooks";
 import { EmployeeFormModal } from "./EmployeesList";
 import SalaryStructureModal from "../modals/SalaryStructureModal";
-import { LedgerAdjustmentModal } from "../_kit/components/LedgerAdjustmentModal";
+import { LedgerAdjustmentModal, LEDGER_TYPE_CONFIG, formatBalanceValue } from "../_kit/components/LedgerAdjustmentModal";
 
 const STRUCTURE_ROWS = [
   ["ctc_annual", "CTC (Annual)"],
@@ -37,6 +37,7 @@ const recordStatusTone = {
 const TABS = [
   { key: "details",  label: "Details",  icon: User },
   { key: "payslips", label: "Payslips", icon: Receipt },
+  { key: "adjustments", label: "Adjustment History", icon: History },
 ];
 
 function TabRow({ active, onChange }) {
@@ -318,6 +319,130 @@ function PayslipsTab({ records, recordsLoading, onDownload }) {
   );
 }
 
+/* ── "Adjustment History" tab body — one section per ledger type
+   (Comp-Off, Leave, Advance, On-Hold), each with its own chronological
+   history list. Advance additionally shows an "EMI Plans" block above its
+   history, since it's the only type with a multi-month plan concept. ── */
+function AdjustmentTypeSection({ typeKey, entries, isMoney, plans, onAdjust }) {
+  const config = LEDGER_TYPE_CONFIG[typeKey];
+  return (
+    <Card className="p-4">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-sm font-semibold" style={{ color: "var(--text-strong)" }}>
+          {config.label}
+        </h3>
+        {onAdjust && (
+          <button
+            type="button"
+            onClick={() => onAdjust(typeKey)}
+            className="text-[10px] font-medium px-1.5 py-0.5 rounded-md transition-colors shrink-0"
+            style={{ color: "var(--blue-text-strong)", background: "var(--blue-bg-subtle)" }}
+          >
+            Adjust
+          </button>
+        )}
+      </div>
+      {plans && plans.length > 0 && (
+        <div className="flex flex-col gap-1.5 mb-3">
+          <div className="text-xs font-semibold" style={{ color: "var(--text-muted)" }}>EMI Plans</div>
+          {plans.map((plan) => {
+            const fullyRecovered = plan.months_recovered >= plan.tenure_months;
+            const disbursed = plan.disbursement_month != null;
+            return (
+              <div
+                key={plan.id}
+                className="flex items-start justify-between gap-3 rounded-lg px-3 py-2"
+                style={{ background: "var(--surface-2)", border: "1px solid var(--border-3)" }}
+              >
+                <div className="min-w-0">
+                  <div className="text-sm font-medium" style={{ color: "var(--text-strong)" }}>
+                    {formatCurrency(plan.total_amount)} over {plan.tenure_months} months ({formatCurrency(plan.emi_amount)}/mo)
+                  </div>
+                  <div className="text-[11px] mt-0.5 flex items-center gap-1.5 flex-wrap" style={{ color: "var(--text-muted)" }}>
+                    <span style={{ color: "var(--text-muted)" }}>
+                      {disbursed
+                        ? `Disbursed ${MONTHS[(plan.disbursement_month || 1) - 1]} ${plan.disbursement_year}`
+                        : `Pending disbursement (created ${formatDateTime(plan.created_at)})`}
+                    </span>
+                    <span>·</span>
+                    <span style={{ color: fullyRecovered ? "var(--green-text-strong)" : "var(--text-muted)" }}>
+                      {fullyRecovered ? "Fully recovered" : `${plan.months_remaining} month(s) remaining`}
+                    </span>
+                  </div>
+                </div>
+                <div className="text-sm font-semibold tabular-nums shrink-0" style={{ color: "var(--text-strong)" }}>
+                  {plan.months_recovered}/{plan.tenure_months}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {!entries || entries.length === 0 ? (
+        <p className="text-sm" style={{ color: "var(--text-muted)" }}>No {config.label.toLowerCase()} adjustments yet.</p>
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          {entries.map((row) => {
+            const isPositive = Number(row.amount) >= 0;
+            return (
+              <div
+                key={row.id}
+                className="flex items-start justify-between gap-3 rounded-lg px-3 py-2"
+                style={{
+                  background: isPositive ? "var(--green-bg-subtle)" : "var(--red-bg-subtle)",
+                  border: `1px solid ${isPositive ? "var(--green-border)" : "var(--red-border)"}`,
+                }}
+              >
+                <div className="min-w-0">
+                  <div className="text-sm font-medium" style={{ color: "var(--text-strong)" }}>
+                    {row.reason || "—"}
+                  </div>
+                  <div className="text-[11px] mt-0.5 flex items-center gap-1.5 flex-wrap" style={{ color: "var(--text-muted)" }}>
+                    <span>{formatDateTime(row.created_at)}</span>
+                    {row.advance != null && (
+                      <>
+                        <span>·</span>
+                        <span style={{ color: "var(--blue-text)" }}>
+                          EMI plan ({row.advance_tenure_months}mo)
+                        </span>
+                      </>
+                    )}
+                    {row.applied_in_record == null && (
+                      <>
+                        <span>·</span>
+                        <span style={{ color: "var(--amber-text-strong)" }}>Pending</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div
+                  className="text-sm font-semibold tabular-nums shrink-0"
+                  style={{ color: isPositive ? "var(--green-text-strong)" : "var(--red-text-strong)" }}
+                >
+                  {isPositive ? "+" : "-"}
+                  {isMoney ? formatCurrency(Math.abs(row.amount)) : `${Math.abs(row.amount)} ${row.amount === 1 || row.amount === -1 ? "day" : "days"}`}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function AdjustmentHistoryTab({ data, isLoading, onAdjust }) {
+  if (isLoading) return <Skeleton className="h-64 w-full" />;
+  return (
+    <div className="grid gap-3 lg:grid-cols-4 items-start">
+      <AdjustmentTypeSection typeKey="comp_off" entries={data?.comp_off} isMoney={false} onAdjust={onAdjust} />
+      <AdjustmentTypeSection typeKey="leave" entries={data?.leave} isMoney={false} onAdjust={onAdjust} />
+      <AdjustmentTypeSection typeKey="salary_advance" entries={data?.salary_advance} isMoney plans={data?.salary_advance_plans} onAdjust={onAdjust} />
+      <AdjustmentTypeSection typeKey="on_hold" entries={data?.on_hold} isMoney onAdjust={onAdjust} />
+    </div>
+  );
+}
+
 export default function EmployeeWorkspace({ employeeId }) {
   const navigate = useNavigate();
   const goBack = useSmartBack("/payroll/employees");
@@ -355,6 +480,7 @@ export default function EmployeeWorkspace({ employeeId }) {
   const records = unwrapList(recordsQuery.data);
 
   const pendingAdjustmentsQuery = usePendingAdjustments(employeeId);
+  const adjustmentHistoryQuery = useAdjustmentHistory(employeeId);
 
   const { mutateSaveEmployee: mutateToggleStatus } = useAppMutations();
   const toggleEmployeeStatus = async () => {
@@ -513,6 +639,14 @@ export default function EmployeeWorkspace({ employeeId }) {
         />
       )}
 
+      {activeTab === "adjustments" && (
+        <AdjustmentHistoryTab
+          data={adjustmentHistoryQuery.data}
+          isLoading={adjustmentHistoryQuery.isLoading}
+          onAdjust={(type) => setLedgerModalOpen(type)}
+        />
+      )}
+
       {showEditEmployee && (
         <EmployeeFormModal
           employee={emp}
@@ -557,6 +691,7 @@ export default function EmployeeWorkspace({ employeeId }) {
             setLedgerModalOpen(null);
             recordsQuery.refetch();
             pendingAdjustmentsQuery.refetch();
+            adjustmentHistoryQuery.refetch();
           }}
         />
       )}

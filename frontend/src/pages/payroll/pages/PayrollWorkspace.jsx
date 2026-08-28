@@ -139,7 +139,12 @@ export default function PayrollWorkspace() {
   const smartBack = useSmartBack("/payroll");
 
   const clientsQuery = useClients();
-  const clients = Array.isArray(clientsQuery.data) ? clientsQuery.data : clientsQuery.data?.results || [];
+  const allClients = Array.isArray(clientsQuery.data) ? clientsQuery.data : clientsQuery.data?.results || [];
+  // Payroll Workspace only ever runs payroll for active clients — an
+  // inactive client (toggled off in Firm Details) simply drops out of this
+  // list here, without being deleted or altered; re-activating it in Firm
+  // Details is what brings it back.
+  const clients = allClients.filter((c) => c.is_active !== false);
   const statsQuery = useOverviewStats();
   const stats = statsQuery.data;
   const batchesQuery = useBatches({});
