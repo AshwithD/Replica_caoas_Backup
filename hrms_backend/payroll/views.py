@@ -889,60 +889,6 @@ class PayslipRecordViewSet(AuditViewMixin, viewsets.ModelViewSet):
 
 
 
-
-# class PayrollTemplateViewSet(viewsets.ViewSet):
-#     permission_classes = [IsAuthenticated]
-
-#     @action(detail=False, methods=["get"], url_path="download")
-#     def download(self, request):
-#         headers = [
-#             "Employee \nCode", "No of Days", "Actual \nWorking  Days", "Paid Leave Days ",
-#             "LOP ", "Basic + DA", "Basic for PF", "HRA", "Leave Travel \nAllowance",
-#             "Special \nAllowance", "NPS \nAllowance", "Gross\nSalary", "VP",
-#             "commission/other allowance/Retention Bonus", "Arrears", "Earned \nSalary",
-#             "TDS", "EPF", "VPF", "PT", "NPS Deduction", "VPF Arrears",
-#             "NPS Deduction - Arrears", "Loan Deduction", "LWF", "Other deduction",
-#             "Total \nDeductions", "Net \nSalary",
-#         ]
-#         sample = [
-#             "EMP001", 31, 22, 1, 0, 25000, 15000, 12000, 3000, 10000, 1000,
-#             51000, 0, 0, 0, 51000, 2500, 1800, 0, 200, 0, 0, 0, 0, 0, 0,
-#             4500, 46500,
-#         ]
-#         workbook = Workbook()
-#         worksheet = workbook.active
-#         worksheet.title = "Payroll Upload"
-#         worksheet.freeze_panes = "A2"
-#         worksheet.append(headers)
-#         worksheet.append(sample)
-#         for cell in worksheet[1]:
-#             cell.font = Font(bold=True)
-#         for column_cells in worksheet.columns:
-#             max_length = max(len(str(cell.value or "")) for cell in column_cells)
-#             worksheet.column_dimensions[column_cells[0].column_letter].width = min(max_length + 2, 40)
-
-#         output = BytesIO()
-#         workbook.save(output)
-#         output.seek(0)
-#         response = HttpResponse(
-#             output.getvalue(),
-#             content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-#         )
-#         response["Content-Disposition"] = 'attachment; filename="payroll_upload_template.xlsx"'
-#         return response
-
-
-
-# Additional imports needed (add these to your existing import block):
-# from openpyxl.styles import Alignment   <-- you only have Font currently
-# from openpyxl.utils import get_column_letter
-
-
-# Columns exactly as the REAL monthly upload sheet has them — 17 columns,
-# matching apps.payroll.excel_parser.VARIABLE_COLUMN_MAPPING. Everything
-# from the old 47-column format (Basic+DA, HRA, Gross Salary, EPF, VPF,
-# PT, Earned/Net Salary, etc.) is no longer uploaded — those are computed
-# server-side in calculations.py from EmployeeSalaryStructure instead.
 HEADER_ROW = [
     "Employee Code",
     "Actual Working Days",
@@ -1063,14 +1009,14 @@ class PayrollTemplateViewSet(viewsets.ViewSet):
         # for employees who don't already have a structure on file.
         employee_headers = [
             "Employee Code", "First Name", "Last Name", "Email", "PAN Number",
-            "Department", "Position", "Hire Date", "CTC", "Status", "PF Applicable",
+            "Department", "Position", "Hire Date", "CTC", "PF Applicable",
         ]
 
         headers = employee_headers
 
         sample = [
             "EMP001", "Rahul", "Sharma", "rahul.sharma@example.com", "ABCDE1234F",
-            "Engineering", "Software Engineer", "2024-01-15", 600000, "active", "yes",
+            "Engineering", "Software Engineer", "2026-01-02", 600000, "yes",
         ]
 
         workbook = Workbook()
@@ -1111,7 +1057,6 @@ class PayrollTemplateViewSet(viewsets.ViewSet):
         mandatory_fields = [
             ("Employee Code", "Unique identifier for employee (e.g., EMP001, EMP002). Must be unique."),
             ("First Name", "Employee's first name (text, max 100 characters)."),
-            ("Status", "Employee status: 'active' or 'inactive' (lowercase)."),
         ]
         
         for field, description in mandatory_fields:

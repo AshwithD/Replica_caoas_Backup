@@ -241,7 +241,6 @@ EMPLOYEE_MASTER_COLUMN_MAPPING = {
     "Position": "position",
     "Hire Date": "hire_date",
     "CTC": "ctc",
-    "Status": "status",
     # Not an Employee field — used only to feed pf_opted into
     # EmployeeSalaryStructure.build_from_ctc() below for rows that get
     # an auto-created initial structure. Doesn't touch Employee itself.
@@ -338,10 +337,6 @@ def parse_employee_master_excel(file, client, created_by=None) -> tuple[int, int
 
         hire_date = _to_date(cell("hire_date"), "Hire Date", errors)
 
-        status_raw = str(cell("status") or Employee.STATUS_ACTIVE).strip().lower()
-        if status_raw not in (Employee.STATUS_ACTIVE, Employee.STATUS_INACTIVE):
-            errors.append(f"Status must be one of: {Employee.STATUS_ACTIVE}, {Employee.STATUS_INACTIVE}")
-
         pf_raw = cell("pf_applicable")
         pf_text = str(pf_raw).strip().lower() if pf_raw not in (None, "") else "yes"
         if pf_text not in ("yes", "no"):
@@ -364,7 +359,11 @@ def parse_employee_master_excel(file, client, created_by=None) -> tuple[int, int
             "pf_opted": pf_opted,
             "hire_date": hire_date,
             "ctc": ctc,
-            "status": status_raw,
+            # Import always creates/updates employees as active — Status is
+            # not an importable column. Deactivation is a deliberate action
+            # done from the employee page, not something a stray value in
+            # an uploaded sheet should be able to flip on re-import.
+            "status": Employee.STATUS_ACTIVE,
         })
 
     if row_errors:

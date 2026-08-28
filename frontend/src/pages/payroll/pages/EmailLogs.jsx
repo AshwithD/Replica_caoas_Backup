@@ -73,7 +73,12 @@ export default function EmailLogs({ onBack }) {
       const url = window.URL.createObjectURL(response.data);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `email_log_${batchId}.csv`;
+      const clientName = clients.find((c) => String(c.id) === String(batch?.client))?.name || "client";
+      const monthLabel = batch ? MONTHS[(batch.month || 1) - 1] : "";
+      const fileClientName = clientName.replace(/\s+/g, "");
+      link.download = batch
+        ? `${fileClientName}_${monthLabel}_${batch.year}_emailstatus.csv`
+        : `email_log_${batchId}.csv`;
       document.body.appendChild(link);
       link.click();
       link.remove();

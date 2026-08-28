@@ -193,7 +193,7 @@ export function ImportEmployeesModal({ clientId, onClose, onImported }) {
           <div className="space-y-1.5">
             <div>
               <p style={{ color: "var(--text-strong)" }}>Employee Master:</p>
-              <p style={{ color: "var(--text-muted)" }}>employee_code, first_name, last_name, email, pan_number, department, position, hire_date, ctc, status, pf_applicable</p>
+              <p style={{ color: "var(--text-muted)" }}>employee_code, first_name, last_name, email, pan_number, department, position, hire_date, ctc, pf_applicable</p>
             </div>
             <div>
               <p style={{ color: "var(--text-strong)" }}>Salary Structure:</p>

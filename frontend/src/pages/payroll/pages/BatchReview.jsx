@@ -705,6 +705,14 @@ function RecordDrawer({ record, batch, editing, setEditing, saveCell, locked, ca
           <LedgerAdjustmentModal
             employee={employeeForModal}
             type={ledgerModalOpen}
+            closingBalance={
+              {
+                comp_off: record.comp_off_closing_balance,
+                leave: record.leave_closing_balance,
+                salary_advance: record.salary_advance_closing_balance,
+                on_hold: record.on_hold_closing_balance,
+              }[ledgerModalOpen] ?? 0
+            }
             onClose={() => {
               setLedgerModalOpen(null);
               onRefetch?.();
@@ -1037,6 +1045,12 @@ export default function BatchReview() {
               setSendElapsedMs(Date.now() - startedAt);
               setSendResults(result);
               setIsSending(false);
+              // Refresh batch/records so `batch.status` (which drives whether
+              // "Send All Emails" is shown at all) reflects the real backend
+              // state immediately, instead of only updating on a manual
+              // page refresh.
+              batchQuery.refetch();
+              recordsQuery.refetch();
             } else if (state === "FAILURE") {
               setSendElapsedMs(Date.now() - startedAt);
               setSendResults({
@@ -1047,6 +1061,8 @@ export default function BatchReview() {
                 error,
               });
               setIsSending(false);
+              batchQuery.refetch();
+              recordsQuery.refetch();
             } else {
               setTimeout(poll, 1500);
             }
@@ -1082,7 +1098,8 @@ export default function BatchReview() {
       const url = window.URL.createObjectURL(response.data);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `${MONTHS[batch.month - 1]}_${batch.year}_payroll_detailed.xlsx`;
+      const clientName = (clients.find((c) => String(c.id) === String(batch.client))?.name || "client").replace(/\s+/g, "");
+      link.download = `${clientName}_${MONTHS[batch.month - 1]}_${batch.year}_payrolldetails.xlsx`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -1105,7 +1122,8 @@ export default function BatchReview() {
 
       const link = document.createElement("a");
       link.href = url;
-      link.download = `${(employeeName || "").replace(/\s+/g, "")}_${MONTHS[batch.month - 1]}${batch.year}-payslip.pdf`;
+      const clientName = (clients.find((c) => String(c.id) === String(batch.client))?.name || "client").replace(/\s+/g, "");
+      link.download = `${clientName}_${(employeeName || "").replace(/\s+/g, "")}_${MONTHS[batch.month - 1]}${batch.year}_payslip.pdf`;
 
       document.body.appendChild(link);
       link.click();

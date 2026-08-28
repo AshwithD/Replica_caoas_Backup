@@ -18,7 +18,13 @@ import { api, apiPath } from "../api/client";
  * which creates the plan + its disbursement adjustment server-side and
  * auto-generates monthly recovery adjustments on later batches.
  *
- * Props: employee ({id, ...}), type ("comp_off" | "leave" | "salary_advance" | "on_hold"), onClose
+ * Props: employee ({id, ...}), type ("comp_off" | "leave" | "salary_advance" | "on_hold"), onClose,
+ * closingBalance (latest applied balance for this type, from the employee's
+ * most recent payslip record), pendingTotal (sum of not-yet-applied
+ * adjustment amounts of this type) — both optional, used only to show the
+ * current effective balance ("closingBalance + pendingTotal") at the top of
+ * the modal so the user has context (e.g. what's currently on hold) before
+ * granting or deducting, and can see it reflect their change once saved.
  */
 
 const TYPE_CONFIG = {
@@ -28,10 +34,18 @@ const TYPE_CONFIG = {
   on_hold: { label: "On-Hold", endpoint: "on-hold-adjustments/", unit: "₹", grantWord: "Put On Hold", deductWord: "Release" },
 };
 
-export function LedgerAdjustmentModal({ employee, type, onClose }) {
+function formatBalanceValue(value, isMoney) {
+  const num = Number(value) || 0;
+  return isMoney
+    ? `₹${num.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : `${num.toFixed(2)} days`;
+}
+
+export function LedgerAdjustmentModal({ employee, type, onClose, closingBalance = 0, pendingTotal = 0 }) {
   const config = TYPE_CONFIG[type] || TYPE_CONFIG.leave;
   const isMoney = config.unit === "₹";
   const isSalaryAdvance = type === "salary_advance";
+  const effectiveBalance = Number(closingBalance || 0) + Number(pendingTotal || 0);
 
   const [direction, setDirection] = useState("grant"); // "grant" | "deduct"
   const [advanceMode, setAdvanceMode] = useState("one_time"); // "one_time" | "emi" — salary_advance grants only
@@ -86,6 +100,23 @@ export function LedgerAdjustmentModal({ employee, type, onClose }) {
           {config.grantWord.toLowerCase()} or {config.deductWord.toLowerCase()}, then enter the
           amount. Takes effect on the next payroll batch.
         </p>
+
+        <div
+          className="rounded-lg px-3 py-2 flex items-center justify-between"
+          style={{ border: "1px solid var(--border-4)", background: "var(--surface-2)" }}
+        >
+          <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
+            Current {config.label} Balance
+          </span>
+          <span className="text-sm font-semibold tabular-nums" style={{ color: "var(--text-strong)" }}>
+            {formatBalanceValue(effectiveBalance, isMoney)}
+          </span>
+        </div>
+        {pendingTotal !== 0 && (
+          <p className="text-[10px] -mt-2" style={{ color: "var(--amber-text-strong)" }}>
+            Includes {formatBalanceValue(pendingTotal, isMoney)} from adjustments not yet applied to a batch.
+          </p>
+        )}
 
         <div className="grid grid-cols-2 gap-2">
           <button

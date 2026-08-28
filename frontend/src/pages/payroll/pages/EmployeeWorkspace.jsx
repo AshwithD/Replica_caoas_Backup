@@ -373,7 +373,8 @@ export default function EmployeeWorkspace({ employeeId }) {
       const url = window.URL.createObjectURL(response.data);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `${(emp?.full_name || "").replace(/\s+/g, "")}_${MONTHS[batch.month - 1]}${batch.year}-payslip.pdf`;
+      const empClientName = (clients.find((c) => String(c.id) === String(emp?.client))?.name || "client").replace(/\s+/g, "");
+      link.download = `${empClientName}_${(emp?.full_name || "").replace(/\s+/g, "")}_${MONTHS[batch.month - 1]}${batch.year}_payslip.pdf`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -540,6 +541,18 @@ export default function EmployeeWorkspace({ employeeId }) {
         <LedgerAdjustmentModal
           employee={emp}
           type={ledgerModalOpen}
+          closingBalance={
+            {
+              comp_off: latestRecord?.comp_off_closing_balance,
+              leave: latestRecord?.leave_closing_balance,
+              salary_advance: latestRecord?.salary_advance_closing_balance,
+              on_hold: latestRecord?.on_hold_closing_balance,
+            }[ledgerModalOpen] ?? 0
+          }
+          pendingTotal={(pendingAdjustmentsQuery.data?.[ledgerModalOpen] || []).reduce(
+            (sum, r) => sum + Number(r.amount || 0),
+            0
+          )}
           onClose={() => {
             setLedgerModalOpen(null);
             recordsQuery.refetch();
