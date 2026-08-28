@@ -141,6 +141,45 @@ export function usePendingAdjustments(employeeId) {
   );
 }
 
+// Full (not just pending) ledger adjustment history across all four types
+// for one employee, newest first — powers the Adjustment History tab.
+// Also fetches this employee's SalaryAdvance EMI plans (salary-advances/),
+// since the "advance" section additionally shows plan-level progress
+// (amount/tenure, months recovered, disbursed/fully-recovered) above its
+// adjustment list — the other three types have no such plan concept.
+export function useAdjustmentHistory(employeeId) {
+  return useQueryLike(
+    () => {
+      if (!employeeId) return Promise.resolve(null);
+      const adjustments = Promise.all(
+        Object.entries(ADJUSTMENT_ENDPOINTS).map(([key, endpoint]) =>
+          api
+            .get(apiPath(endpoint), { params: { employee: employeeId } })
+            .then(unwrap)
+            .then((data) => {
+              const list = Array.isArray(data) ? data : data?.results || [];
+              const sorted = [...list].sort(
+                (a, b) => new Date(b.created_at) - new Date(a.created_at)
+              );
+              return [key, sorted];
+            })
+        )
+      ).then((entries) => Object.fromEntries(entries));
+
+      const plans = api
+        .get(apiPath("salary-advances/"), { params: { employee: employeeId } })
+        .then(unwrap)
+        .then((data) => (Array.isArray(data) ? data : data?.results || []));
+
+      return Promise.all([adjustments, plans]).then(([byType, salaryAdvancePlans]) => ({
+        ...byType,
+        salary_advance_plans: salaryAdvancePlans,
+      }));
+    },
+    [employeeId]
+  );
+}
+
 export function useEmailLogs(filters = {}) {
   const key = JSON.stringify(filters || {});
   return useQueryLike(

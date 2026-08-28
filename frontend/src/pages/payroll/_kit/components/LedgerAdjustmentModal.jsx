@@ -27,14 +27,15 @@ import { api, apiPath } from "../api/client";
  * granting or deducting, and can see it reflect their change once saved.
  */
 
-const TYPE_CONFIG = {
+export const LEDGER_TYPE_CONFIG = {
   comp_off: { label: "Comp-Off", endpoint: "comp-off-adjustments/", unit: "days", grantWord: "Grant", deductWord: "Deduct" },
   leave: { label: "Leave", endpoint: "leave-adjustments/", unit: "days", grantWord: "Grant", deductWord: "Deduct" },
   salary_advance: { label: "Salary Advance", endpoint: "salary-advance-adjustments/", unit: "₹", grantWord: "Grant Advance", deductWord: "Record Recovery" },
   on_hold: { label: "On-Hold", endpoint: "on-hold-adjustments/", unit: "₹", grantWord: "Put On Hold", deductWord: "Release" },
 };
+const TYPE_CONFIG = LEDGER_TYPE_CONFIG;
 
-function formatBalanceValue(value, isMoney) {
+export function formatBalanceValue(value, isMoney) {
   const num = Number(value) || 0;
   return isMoney
     ? `₹${num.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
