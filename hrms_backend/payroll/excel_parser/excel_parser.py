@@ -1,4 +1,4 @@
-"""hrms_backend /payroll/excel_parser.py"""
+"""hrms_backend /payroll/excel_parser/excel_parser.py"""
 # C:\Users\ashwi\Desktop\Replica_caoas_Backup\hrms_backend\payroll\excel_parser.py
 
 import re
@@ -8,8 +8,8 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 from openpyxl import load_workbook
 
-from .models import Employee, EmployeeSalaryStructure
-from .upload_validators import ExcelTooLargeError, enforce_max_rows
+from ..models import Employee, EmployeeSalaryStructure
+from ..upload_validators import ExcelTooLargeError, enforce_max_rows
 
 
 class ExcelParseError(Exception):

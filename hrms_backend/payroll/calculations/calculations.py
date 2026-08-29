@@ -1,4 +1,4 @@
-"""apps/payroll/calculations.py
+"""apps/payroll/calculations/calculations.py
 
 Computes the salary-component fields (basic_da, hra, basic_for_pf, epf,
 vpf, professional_tax, gross_salary, earned_salary) that used

@@ -1,3 +1,5 @@
+
+# payroll/pdf_generator/pdf_generator.py
 """One-page, field-faithful payslip PDF renderer.
 
 The renderer deliberately reads only fields already present on PayslipRecord,
@@ -23,7 +25,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
-from .models import PayslipRecord
+from ..models import PayslipRecord
 
 try:
     from PIL import Image as PILImage

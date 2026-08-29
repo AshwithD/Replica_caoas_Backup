@@ -1,4 +1,4 @@
-"""apps/payroll/tasks.py"""
+"""apps/payroll/tasks/tasks.py"""
 
 import os
 from pathlib import Path
@@ -10,8 +10,8 @@ from dotenv import load_dotenv
 from django.contrib.auth import get_user_model
 User = get_user_model()
 
-from .email_service import send_payslip_email
-from .models import PayrollBatch, PayslipRecord
+from ..email_service import send_payslip_email
+from ..models import PayrollBatch, PayslipRecord
 
 # Payroll uses its own email credentials, independent of the project-wide
 # EMAIL_HOST_* settings in hrms_backend/settings.py — sourced from

@@ -1,4 +1,4 @@
-"""hrms_backend/payroll/email_service.py"""
+"""hrms_backend/payroll/email_service/email_service.py"""
 
 import logging
 import time
@@ -9,8 +9,8 @@ from pathlib import Path
 from django.core.mail import EmailMultiAlternatives
 from django.conf import settings
 
-from .models import EmailLog, PayslipRecord
-from .pdf_generator import resized_logo_bytes
+from ..models import EmailLog, PayslipRecord
+from ..pdf_generator import resized_logo_bytes
 
 logger = logging.getLogger(__name__)
 

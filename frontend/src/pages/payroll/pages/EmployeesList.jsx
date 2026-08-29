@@ -720,6 +720,11 @@ export function EmployeeFormModal({ employee, clients = [], defaultClientId, cli
 export default function EmployeesList({ onOpenEmployee, embedded = false, lockedClientId }) {
   const { mutateSaveEmployee: mutateToggleStatus } = useAppMutations();
   const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput), 400);
+    return () => clearTimeout(t);
+  }, [searchInput]);
   const [structureFilter, setStructureFilter] = useState("");
   const clientsQuery = useClients();
   const clients = Array.isArray(clientsQuery.data) ? clientsQuery.data : clientsQuery.data?.results || [];
@@ -794,8 +799,8 @@ export default function EmployeesList({ onOpenEmployee, embedded = false, locked
       />
       <input
         placeholder="Search name or code…"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
+        value={searchInput}
+        onChange={(e) => setSearchInput(e.target.value)}
         className="ml-auto rounded-lg px-3 py-1.5 text-sm outline-none"
         style={{ border: "1px solid var(--border-4)", background: "var(--surface-1)", color: "var(--text-primary)" }}
       />
@@ -820,55 +825,53 @@ export default function EmployeesList({ onOpenEmployee, embedded = false, locked
 
       {!embedded && filterBar}
 
-      {isLoading && (
-        <div className="space-y-2">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-14 w-full" />
-          ))}
-        </div>
-      )}
-      {isError && <ErrorState message="Failed to load employees." onRetry={refetch} />}
-
-      {!isLoading && !isError && (
-        <Card className="overflow-hidden">
-          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3" style={{ borderBottom: "1px solid var(--border-3)" }}>
-            <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="text-sm font-semibold" style={{ color: "var(--text-strong)" }}>
-                Employees
-              </h3>
-              <Badge tone="slate">{filtered.length} records</Badge>
-              {embedded && (
-                <div className="flex items-center gap-3 text-sm ml-2" style={{ color: "var(--text-muted)" }}>
-                  <span><strong style={{ color: "var(--text-strong)" }}>{employees.length}</strong> total</span>
-                  <span><strong style={{ color: "var(--green-text-strong)" }}>{withStructure}</strong> with structure</span>
-                  <span><strong style={{ color: "var(--amber-text-strong)" }}>{withoutStructure}</strong> without structure</span>
-                </div>
-              )}
-            </div>
+      <Card className="overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3" style={{ borderBottom: "1px solid var(--border-3)" }}>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h3 className="text-sm font-semibold" style={{ color: "var(--text-strong)" }}>
+              Employees
+            </h3>
+            <Badge tone="slate">{filtered.length} records</Badge>
             {embedded && (
-              <div className="flex items-center gap-3 flex-wrap">
-                <div className="flex items-center gap-1.5 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
-                  <Filter size={14} /> Filters
-                </div>
-                <GlassDropdown
-                  value={structureFilter}
-                  onChange={setStructureFilter}
-                  options={STRUCTURE_FILTER_OPTIONS}
-                  placeholder="Structure"
-                  width="w-44"
-                />
-                <input
-                  placeholder="Search name or code…"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="rounded-lg px-3 py-1.5 text-sm outline-none"
-                  style={{ border: "1px solid var(--border-4)", background: "var(--surface-1)", color: "var(--text-primary)" }}
-                />
+              <div className="flex items-center gap-3 text-sm ml-2" style={{ color: "var(--text-muted)" }}>
+                <span><strong style={{ color: "var(--text-strong)" }}>{employees.length}</strong> total</span>
+                <span><strong style={{ color: "var(--green-text-strong)" }}>{withStructure}</strong> with structure</span>
+                <span><strong style={{ color: "var(--amber-text-strong)" }}>{withoutStructure}</strong> without structure</span>
               </div>
             )}
           </div>
+          {embedded && (
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-1.5 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
+                <Filter size={14} /> Filters
+              </div>
+              <GlassDropdown
+                value={structureFilter}
+                onChange={setStructureFilter}
+                options={STRUCTURE_FILTER_OPTIONS}
+                placeholder="Structure"
+                width="w-44"
+              />
+              <input
+                placeholder="Search name or code…"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                className="rounded-lg px-3 py-1.5 text-sm outline-none"
+                style={{ border: "1px solid var(--border-4)", background: "var(--surface-1)", color: "var(--text-primary)" }}
+              />
+            </div>
+          )}
+        </div>
 
-          {filtered.length === 0 ? (
+        {isError ? (
+          <ErrorState message="Failed to load employees." onRetry={refetch} />
+        ) : isLoading ? (
+          <div className="p-4 space-y-2">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-14 w-full" />
+            ))}
+          </div>
+        ) : filtered.length === 0 ? (
             <EmptyState emoji="👥" message="No employees match this filter." />
           ) : (
             <table className="w-full text-sm">
@@ -945,9 +948,8 @@ export default function EmployeesList({ onOpenEmployee, embedded = false, locked
                 ))}
               </tbody>
             </table>
-          )}
-        </Card>
-      )}
+        )}
+      </Card>
 
       {editing && (
         <SalaryStructureModal

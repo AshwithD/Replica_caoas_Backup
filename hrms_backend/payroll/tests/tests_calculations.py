@@ -1,3 +1,4 @@
+# payroll/tests/tests_calculations.py
 """
 Tests for apps.payroll.calculations: is_in_probation() and
 calculate_payslip_fields().
@@ -265,4 +266,3 @@ class CalculatePayslipFieldsTests(SimpleTestCase):
             month=5, days_in_month=30,
         )
         self.assertEqual(result["special_allowance"], Decimal("2500.00"))
-        

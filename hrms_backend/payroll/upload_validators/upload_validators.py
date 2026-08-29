@@ -1,5 +1,5 @@
 """
-payroll/upload_validators.py
+payroll/upload_validators/upload_validators.py
 
 Local replacement for the missing apps.core.upload_validators module.
 Kept inside the payroll module only.
