@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   Building2, Mail, Pencil, Upload, UserPlus, Users, Layers,
   Info, IndianRupee, Phone, CreditCard, Receipt, Hash, Landmark,
-  MapPin, ClipboardList,
+  MapPin, ClipboardList, Palette,
 } from "lucide-react";
 import { useClient, useBatches, useEmailLogs } from "../_kit/hooks/hooks";
 import { Badge, Button, Card, ErrorState, Skeleton } from "../_kit/components/primitives";
@@ -14,6 +14,7 @@ import BatchList from "./BatchList";
 import EmailLogBatches from "./EmailLogBatches";
 import EmployeesList from "./EmployeesList";
 import UploadPayrollModal from "../modals/UploadPayrollModal";
+import ChooseDesignModal from "../modals/ChooseDesignModal";
 import { ClientFormModal } from "./FirmDetails";
 import { EmployeeFormModal, ImportEmployeesModal } from "./EmployeesList";
 
@@ -153,6 +154,7 @@ export default function ClientWorkspace() {
   const emailLogs = unwrapList(emailLogsQuery.data);
 
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [choosingDesign, setChoosingDesign] = useState(false);
   const [addingEmployee, setAddingEmployee] = useState(false);
   const [importingEmployees, setImportingEmployees] = useState(false);
   // Bumped whenever an employee is added/imported so the embedded
@@ -234,6 +236,9 @@ export default function ClientWorkspace() {
             <Button size="sm" variant="secondary" onClick={() => setImportingEmployees(true)}>
               <Upload size={14} /> Import Employees
             </Button>
+            <Button size="sm" variant="secondary" onClick={() => setChoosingDesign(true)}>
+              <Palette size={14} /> Choose Design
+            </Button>
             <Button size="sm" onClick={() => setUploadOpen(true)}>
               <Upload size={14} /> Upload Payroll
             </Button>
@@ -286,6 +291,14 @@ export default function ClientWorkspace() {
             setUploadOpen(false);
             navigate(`/payroll/batches/${batch.id}`);
           }}
+        />
+      )}
+
+      {choosingDesign && (
+        <ChooseDesignModal
+          client={client}
+          onClose={() => setChoosingDesign(false)}
+          onSaved={clientQuery.refetch}
         />
       )}
 
