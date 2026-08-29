@@ -29,6 +29,9 @@ class Client(models.Model):
     pf_establishment_code = models.CharField(max_length=40, blank=True)
     is_active = models.BooleanField(default=True)
 
+    PDF_DESIGN_CHOICES = [(i, f"Design {i}") for i in range(1, 9)]
+    pdf_design = models.PositiveSmallIntegerField(choices=PDF_DESIGN_CHOICES, default=1)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

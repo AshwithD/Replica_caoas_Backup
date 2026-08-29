@@ -6,6 +6,8 @@ from io import BytesIO, StringIO
 from pathlib import Path
 
 from decimal import Decimal
+from datetime import date
+from unittest.mock import patch
 
 from django.db import models, transaction
 from django.http import FileResponse, Http404, HttpResponse
@@ -38,7 +40,7 @@ from .models import (
     OnHoldAdjustment, PayrollBatch, PayslipRecord, PayslipRecordEdit, SalaryAdvance,
     SalaryAdvanceAdjustment, get_latest_salary_structure,
 )
-from .pdf_generator import generate_payslip_pdf
+from .pdf_generator import DESIGN_MODULES, generate_payslip_pdf
 from .serializers import (
     EmailLogSerializer,
     PAYSLIP_EDITABLE_FIELDS,
@@ -1344,6 +1346,98 @@ class ClientViewSet(viewsets.ModelViewSet):
     serializer_class = ClientSerializer
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     queryset = Client.objects.all().order_by("name")
+
+    @action(detail=True, methods=["get"], url_path="pdf-preview")
+    def pdf_preview(self, request, pk=None):
+        """
+        Renders ONE on-demand preview PDF for this client, using the real
+        client (name/logo/address/etc.) with dummy employee/salary data —
+        for the "Choose Design" modal, so a design can be judged before
+        being saved. Nothing is persisted: the Employee/PayrollBatch/
+        PayslipRecord below are built in memory and never saved.
+        """
+        client = self.get_object()
+        try:
+            design = int(request.query_params.get("design", client.pdf_design))
+        except (TypeError, ValueError):
+            raise PermissionDenied("design must be an integer 1-8")
+        module = DESIGN_MODULES.get(design, DESIGN_MODULES[1])
+
+        today = date.today()
+        dummy_employee = Employee(
+            id=0,
+            client=client,
+            employee_code="EMP001",
+            first_name="John",
+            last_name="Doe",
+            email="john.doe@example.com",
+            pan_number="ABCDE1234F",
+            department="Operations",
+            position="Associate",
+            hire_date=date(today.year, 1, 1),
+            ctc=Decimal("1200000.00"),
+            status=Employee.STATUS_ACTIVE,
+        )
+        dummy_batch = PayrollBatch(
+            id=0,
+            client=client,
+            month=today.month,
+            year=today.year,
+            uploaded_by=request.user,
+        )
+        dummy_record = PayslipRecord(
+            id=0,
+            batch=dummy_batch,
+            employee=dummy_employee,
+            days_in_month=30,
+            actual_working_days=30,
+            paid_leave_days=Decimal("0"),
+            lop_days=Decimal("0"),
+            basic_da=Decimal("50000.00"),
+            hra=Decimal("20000.00"),
+            special_allowance=Decimal("15000.00"),
+            gross_salary=Decimal("85000.00"),
+            earned_salary=Decimal("85000.00"),
+            epf=Decimal("1800.00"),
+            professional_tax=Decimal("200.00"),
+            tds=Decimal("2000.00"),
+            total_deductions=Decimal("4000.00"),
+            net_salary=Decimal("81000.00"),
+        )
+
+        # CTC on the payslip is NOT read from Employee.ctc — every design's
+        # _structure() helper looks it up via a real DB query against
+        # EmployeeSalaryStructure.objects.filter(employee=record.employee,
+        # ...). dummy_employee has no pk, so that query would always return
+        # no match and CTC would render as "—". Stub the lookup's queryset
+        # chain (.filter().order_by().first()) to hand back this in-memory
+        # structure instead, scoped to just this render call.
+        dummy_structure = EmployeeSalaryStructure(
+            id=0,
+            employee=dummy_employee,
+            effective_from=date(today.year, 1, 1),
+            ctc_annual=dummy_employee.ctc,
+            pf_opted=True,
+        )
+
+        class _FakeSalaryStructureQuerySet:
+            def order_by(self, *args, **kwargs):
+                return self
+
+            def first(self):
+                return dummy_structure
+
+        pdf_bytes = self._render_preview_pdf(module, dummy_record, _FakeSalaryStructureQuerySet())
+        return HttpResponse(
+            pdf_bytes,
+            content_type="application/pdf",
+            headers={"Content-Disposition": "inline; filename=preview.pdf"},
+        )
+
+    @staticmethod
+    def _render_preview_pdf(module, dummy_record, fake_queryset):
+        with patch.object(EmployeeSalaryStructure.objects, "filter", return_value=fake_queryset):
+            return module._build_pdf_bytes(dummy_record, encryption=None)
 
 
 # ── Salary structure ───────────────────────────────────────────────────────

@@ -407,7 +407,7 @@ class ClientSerializer(serializers.ModelSerializer):
         fields = [
             "id", "name", "logo", "address", "email", "phone",
             "pan", "tan", "gstin", "pf_establishment_code", "is_active",
-            "created_at", "updated_at",
+            "pdf_design", "created_at", "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
 
