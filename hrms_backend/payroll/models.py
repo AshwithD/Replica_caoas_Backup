@@ -8,38 +8,57 @@ from django.db import models
 from .mixins import AuditableMixin
 
 
-class Client(models.Model):
+PDF_DESIGN_CHOICES = [(i, f"Design {i}") for i in range(1, 9)]
+
+
+class ClientProfile(models.Model):
     """
-    One of the CA firm's own payroll-service clients — a company the firm
-    runs payroll for. Payroll is now multi-client: every batch, employee,
-    and payslip is scoped to one Client. Fully self-contained (no outgoing
-    FKs), same shape as the single-firm `Company` model this replaces —
-    name, logo, and the registration details a payslip letterhead needs,
-    just per-client instead of a single implicit row.
+    Payroll-specific extension of the master `clients.Client` — the single
+    source of truth for client identity lives in the Client module.
+
+    Only payroll-owned concerns live here:
+      * payroll_logo           → payslip letterhead logo (renamed from `logo`)
+      * payroll_email          → payroll-only email override; empty = fall
+                                 back to `client.email`
+      * pdf_design             → which payslip layout (1-8) to render
+      * pf_establishment_code  → PF establishment code for payslips
+      * payroll_is_active      → payroll-service on/off toggle. The master
+                                 `client.is_active` acts as a hard kill-switch.
+
+    The existence of a profile row IS payroll enrollment: a client in the
+    master list without a ClientProfile row is not a payroll client.
     """
 
-    name = models.CharField(max_length=255)
-    logo = models.ImageField(upload_to="payroll/client_logos/", null=True, blank=True)
-    address = models.TextField(blank=True)
-    email = models.EmailField(blank=True)
-    phone = models.CharField(max_length=20, blank=True)
-    pan = models.CharField(max_length=20, blank=True)
-    tan = models.CharField(max_length=20, blank=True)
-    gstin = models.CharField(max_length=20, blank=True)
-    pf_establishment_code = models.CharField(max_length=40, blank=True)
-    is_active = models.BooleanField(default=True)
+    client = models.OneToOneField(
+        "clients.Client",
+        on_delete=models.CASCADE,
+        related_name="payroll_profile",
+    )
 
-    PDF_DESIGN_CHOICES = [(i, f"Design {i}") for i in range(1, 9)]
+    payroll_logo = models.ImageField(upload_to="payroll/client_logos/", null=True, blank=True)
+    payroll_email = models.EmailField(blank=True)
     pdf_design = models.PositiveSmallIntegerField(choices=PDF_DESIGN_CHOICES, default=1)
+    pf_establishment_code = models.CharField(max_length=40, blank=True)
+    payroll_is_active = models.BooleanField(default=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = "payroll_clients"
+        db_table = "payroll_client_profiles"
+
+    @property
+    def email(self) -> str:
+        """Payroll email override with fallback to the master client email."""
+        return self.payroll_email or self.client.email
+
+    @property
+    def is_effectively_active(self) -> bool:
+        """Master client must be active AND the payroll toggle on."""
+        return bool(self.client.is_active and self.payroll_is_active)
 
     def __str__(self) -> str:
-        return self.name
+        return self.client.name
 
 
 class Employee(models.Model):
@@ -75,7 +94,7 @@ class Employee(models.Model):
     ctc = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default=STATUS_ACTIVE)
     client = models.ForeignKey(
-        "payroll.Client", on_delete=models.PROTECT, related_name="employees",
+        "clients.Client", on_delete=models.PROTECT, related_name="payroll_employees",
     )
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -113,7 +132,7 @@ class PayrollBatch(AuditableMixin, models.Model):
     ]
 
     client = models.ForeignKey(
-        Client,
+        "clients.Client",
         on_delete=models.PROTECT,
         related_name="payroll_batches",
     )

@@ -36,10 +36,11 @@ import calendar
 from .calculations import calculate_payslip_fields, is_in_probation
 from .excel_parser import ExcelParseError, PayrollRowValidationError, parse_payroll_excel
 from .models import (
-    Client, CompOffAdjustment, EmailLog, Employee, EmployeeSalaryStructure, LeaveAdjustment,
+    CompOffAdjustment, EmailLog, Employee, EmployeeSalaryStructure, LeaveAdjustment,
     OnHoldAdjustment, PayrollBatch, PayslipRecord, PayslipRecordEdit, SalaryAdvance,
     SalaryAdvanceAdjustment, get_latest_salary_structure,
 )
+from clients.models import Client
 from .pdf_generator import DESIGN_MODULES, generate_payslip_pdf
 from .serializers import (
     EmailLogSerializer,
@@ -1345,7 +1346,11 @@ class ClientViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, IsAdminOrManagerRole]
     serializer_class = ClientSerializer
     parser_classes = [MultiPartParser, FormParser, JSONParser]
-    queryset = Client.objects.all().order_by("name")
+    # Every master client (clients.Client) is visible to payroll; the
+    # ClientProfile row is created lazily on first save of payroll settings
+    # (see ClientSerializer.update). A client added in the Client module
+    # therefore shows up here immediately.
+    queryset = Client.objects.select_related("payroll_profile").order_by("name")
 
     @action(detail=True, methods=["get"], url_path="pdf-preview")
     def pdf_preview(self, request, pk=None):
@@ -1358,7 +1363,9 @@ class ClientViewSet(viewsets.ModelViewSet):
         """
         client = self.get_object()
         try:
-            design = int(request.query_params.get("design", client.pdf_design))
+            _profile = getattr(client, "payroll_profile", None)
+            _design = getattr(_profile, "pdf_design", 1) if _profile else 1
+            design = int(request.query_params.get("design", _design))
         except (TypeError, ValueError):
             raise PermissionDenied("design must be an integer 1-8")
         module = DESIGN_MODULES.get(design, DESIGN_MODULES[1])

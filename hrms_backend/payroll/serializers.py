@@ -5,8 +5,9 @@ from decimal import Decimal
 from rest_framework import serializers
 
 from .calculations import is_in_probation
+from clients.models import Client as MasterClient
 from .models import (
-    Client, CompOffAdjustment, EmailLog, Employee, EmployeeSalaryStructure, LeaveAdjustment,
+    ClientProfile, CompOffAdjustment, EmailLog, Employee, EmployeeSalaryStructure, LeaveAdjustment,
     OnHoldAdjustment, PayrollBatch, PayslipRecord, PayslipRecordEdit, SalaryAdvance,
     SalaryAdvanceAdjustment, get_latest_salary_structure,
 )
@@ -402,14 +403,123 @@ class EmailLogSerializer(serializers.ModelSerializer):
 # ── Client profile ─────────────────────────────────────────────────────────
 
 class ClientSerializer(serializers.ModelSerializer):
+    """
+    Payroll "client" as the frontend knows it — a flat object that merges
+    the master identity (clients.Client) with the payroll-only extension
+    (ClientProfile). The JSON shape is unchanged (name/email/phone/pan/tan/
+    gstin/address/logo/pdf_design/is_active), so the existing payroll
+    frontend keeps working without modification.
+
+    IMPORTANT: the serializer's model is the MASTER client (that's also
+    what ClientViewSet.queryset returns), so identity fields map 1:1 onto
+    clients.Client while the payroll-only fields read/write through the
+    related ClientProfile via dotted ``payroll_profile.*`` sources. `id`
+    is therefore the master client id — the same id Employee.client and
+    PayrollBatch.client now reference.
+    """
+
+    # ── Identity (master clients.Client) — direct model fields ──
+    name = serializers.CharField(max_length=255, required=True)
+    email = serializers.EmailField(required=False, allow_null=True, allow_blank=True)
+    phone = serializers.CharField(required=False, allow_null=True, allow_blank=True, default="")
+    address = serializers.CharField(required=False, allow_null=True, allow_blank=True, default="")
+    pan = serializers.CharField(required=False, allow_null=True, allow_blank=True, default="")
+    tan = serializers.CharField(required=False, allow_null=True, allow_blank=True, default="")
+    gstin = serializers.CharField(required=False, allow_null=True, allow_blank=True, default="")
+
+    # ── Payroll-only (ClientProfile), via the reverse OneToOne ──
+    logo = serializers.ImageField(source="payroll_profile.payroll_logo", required=False, allow_null=True)
+    payroll_email = serializers.EmailField(source="payroll_profile.payroll_email", required=False, allow_null=True, allow_blank=True)
+    is_active = serializers.BooleanField(source="payroll_profile.payroll_is_active", required=False, default=True)
+    pdf_design = serializers.IntegerField(source="payroll_profile.pdf_design", required=False, default=1)
+    pf_establishment_code = serializers.CharField(source="payroll_profile.pf_establishment_code", required=False, allow_null=True, allow_blank=True, default="")
+
     class Meta:
-        model = Client
+        model = MasterClient
         fields = [
-            "id", "name", "logo", "address", "email", "phone",
+            "id", "name", "logo", "payroll_email", "address", "email", "phone",
             "pan", "tan", "gstin", "pf_establishment_code", "is_active",
             "pdf_design", "created_at", "updated_at",
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
+
+    @staticmethod
+    def _split(validated_data):
+        """Split validated_data into {master identity fields} and {profile fields}.
+
+        Payroll fields use dotted ``source="payroll_profile.*"``, so DRF
+        nests them under a ``payroll_profile`` key in validated_data;
+        identity fields stay flat on the master client.
+        """
+        identity = {}
+        for field in ("name", "email", "phone", "address", "pan", "tan", "gstin"):
+            if field in validated_data:
+                identity[field] = validated_data[field]
+        profile = dict(validated_data.get("payroll_profile") or {})
+        return identity, profile
+
+    @staticmethod
+    def _norm_email(value):
+        return (value or "").strip() or None
+
+    def to_representation(self, instance):
+        """Normalise payroll-only fields for clients that have no profile yet
+        (a client added in the Client module): the reverse OneToOne raises
+        RelatedObjectDoesNotExist, which DRF swallows to None before the
+        field defaults run — so fill the sane defaults here instead."""
+        data = super().to_representation(instance)
+        if data.get("is_active") is None:
+            data["is_active"] = True
+        if data.get("pdf_design") is None:
+            data["pdf_design"] = 1
+        if data.get("payroll_email") is None:
+            data["payroll_email"] = ""
+        if data.get("pf_establishment_code") is None:
+            data["pf_establishment_code"] = ""
+        return data
+
+    def create(self, validated_data):
+        identity, profile = self._split(validated_data)
+        name = (identity.get("name") or "").strip()
+        # If the master client already exists (e.g. it was added in the
+        # Client module), reuse it instead of violating the unique name
+        # constraint — just create/update its payroll profile.
+        existing = MasterClient.objects.filter(name__iexact=name).first() if name else None
+        if existing:
+            prof, _ = ClientProfile.objects.get_or_create(client=existing)
+            for field, value in profile.items():
+                setattr(prof, field, value)
+            prof.save()
+            return existing
+        client = MasterClient.objects.create(
+            name=name,
+            email=self._norm_email(identity.get("email")),
+            phone=(identity.get("phone") or "")[:30],
+            address=identity.get("address") or "",
+            pan=(identity.get("pan") or "")[:10],
+            tan=(identity.get("tan") or "")[:10],
+            gstin=(identity.get("gstin") or "")[:15],
+        )
+        ClientProfile.objects.create(client=client, **profile)
+        # Return the MASTER client so serializer.data can re-serialize it
+        # (identity fields are direct attributes on the master model).
+        return client
+
+    def update(self, instance, validated_data):
+        identity, profile = self._split(validated_data)
+        for field, value in identity.items():
+            if field == "email":
+                value = self._norm_email(value)
+            setattr(instance, field, value)
+        instance.save()
+        if profile:
+            # Lazily create the profile on first payroll-settings save — a
+            # client added in the Client module has none yet.
+            prof, _ = ClientProfile.objects.get_or_create(client=instance)
+            for field, value in profile.items():
+                setattr(prof, field, value)
+            prof.save()
+        return instance
 
 
 class EmployeeSerializer(serializers.ModelSerializer):

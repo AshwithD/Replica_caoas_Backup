@@ -1,13 +1,15 @@
 """hrms_backend/payroll/email_service/email_service.py"""
 
 import logging
+import os
 import time
 from calendar import month_name
 from email.mime.image import MIMEImage
 from pathlib import Path
 
-from django.core.mail import EmailMultiAlternatives
 from django.conf import settings
+from django.core.mail import EmailMultiAlternatives, get_connection
+from dotenv import load_dotenv
 
 from ..models import EmailLog, PayslipRecord
 from ..pdf_generator import resized_logo_bytes
@@ -15,9 +17,46 @@ from ..pdf_generator import resized_logo_bytes
 logger = logging.getLogger(__name__)
 
 
+# ── Payroll email credentials ─────────────────────────────────────────────
+# Payroll sends email using ONLY the credentials in `payroll/.env`
+# (PAYROLL_EMAIL_*) — never the project-wide EMAIL_HOST_* settings in
+# hrms_backend/settings.py. This module is the single source of truth for
+# that config; tasks.py imports get_payroll_email_connection() from here so
+# the bulk-send and single-resend paths always use the same .env values.
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
+PAYROLL_EMAIL_HOST = os.environ.get("PAYROLL_EMAIL_HOST", "smtp.gmail.com")
+PAYROLL_EMAIL_PORT = int(os.environ.get("PAYROLL_EMAIL_PORT", "587"))
+PAYROLL_EMAIL_USE_TLS = os.environ.get("PAYROLL_EMAIL_USE_TLS", "True") == "True"
+PAYROLL_EMAIL_HOST_USER = os.environ.get("PAYROLL_EMAIL_HOST_USER", "")
+PAYROLL_EMAIL_HOST_PASSWORD = os.environ.get("PAYROLL_EMAIL_HOST_PASSWORD", "")
+# From address. Defaults to the authenticated account (HOST_USER) so the
+# From header always matches the SMTP login — Gmail rejects From ≠ the
+# authenticated user. Set an explicit display name + address like
+#   PAYROLL_EMAIL_FROM=CAPSCA <audits@ckpsca.com>
+PAYROLL_EMAIL_FROM = os.environ.get("PAYROLL_EMAIL_FROM", "") or PAYROLL_EMAIL_HOST_USER
+
+
+def get_payroll_email_connection():
+    return get_connection(
+        host=PAYROLL_EMAIL_HOST,
+        port=PAYROLL_EMAIL_PORT,
+        username=PAYROLL_EMAIL_HOST_USER,
+        password=PAYROLL_EMAIL_HOST_PASSWORD,
+        use_tls=PAYROLL_EMAIL_USE_TLS,
+    )
+
+
 # ── Logo helper ────────────────────────────────────────────────────────────
 
 LOGO_CID = "company_logo"
+
+
+def _client_logo(client):
+    """Resolve the client's payslip logo (ClientProfile.payroll_logo).
+    Returns None when there is no profile row or no logo set."""
+    profile = getattr(client, "payroll_profile", None)
+    return getattr(profile, "payroll_logo", None) if profile else None
 
 
 def _logo_img_tag(client) -> str:
@@ -29,12 +68,13 @@ def _logo_img_tag(client) -> str:
     reliable cross-client approach for embedded images.
     Falls back to the company name as bold text if no logo is set.
     """
-    if not getattr(client, "logo", None):
+    logo = _client_logo(client)
+    if not logo:
         return f'<span style="color:#ffffff;font-size:18px;font-weight:700;">{client.name}</span>'
     try:
         # Just confirm the file actually exists on disk before referencing it;
         # the real attach happens in _attach_logo_inline.
-        if not Path(client.logo.path).exists():
+        if not Path(logo.path).exists():
             raise FileNotFoundError
         return (
             f'<img src="cid:{LOGO_CID}" '
@@ -52,10 +92,11 @@ def _attach_logo_inline(email: EmailMultiAlternatives, client) -> None:
     _logo_img_tag actually returned an <img> tag (i.e. logo exists and is
     readable) — otherwise there's nothing to attach.
     """
-    if not getattr(client, "logo", None):
+    logo = _client_logo(client)
+    if not logo:
         return
     try:
-        logo_path = Path(client.logo.path)
+        logo_path = Path(logo.path)
         if not logo_path.exists():
             return
         logo_bytes = resized_logo_bytes(logo_path)
@@ -286,12 +327,17 @@ def _build_plain_body(record: PayslipRecord) -> str:
 # ── Public send function ───────────────────────────────────────────────────
 
 def send_payslip_email(record: PayslipRecord, sent_by, connection=None) -> tuple[bool, str]:
+    # No connection supplied (e.g. single-record resend from the API) →
+    # use the payroll .env connection, NOT Django's settings.py backend.
+    connection = connection or get_payroll_email_connection()
     client       = record.batch.client
     employee     = record.employee
     month_label  = month_name[record.batch.month]
     period       = f"{month_label} {record.batch.year}"
     subject      = f"Your Salary Slip for {period} | {client.name}"
-    cc_email     = client.email or None
+    # payroll_email override wins; otherwise fall back to the master client's email.
+    _profile     = getattr(client, "payroll_profile", None)
+    cc_email     = (getattr(_profile, "payroll_email", None) or client.email) or None
     attempt_number = EmailLog.objects.filter(payslip_record=record).count() + 1
 
     try:
@@ -303,15 +349,13 @@ def send_payslip_email(record: PayslipRecord, sent_by, connection=None) -> tuple
         pdf_size_kb = pdf_path.stat().st_size / 1024
 
         t0 = time.perf_counter()
-        # connection=None falls back to Django's default behavior (opens
-        # and closes its own SMTP connection for this one send). Callers
-        # sending a whole batch should pass a single open connection in so
+        # Callers sending a whole batch pass a single open connection in so
         # every email in the batch reuses one SMTP/TLS handshake instead of
         # paying that cost per-email.
         email = EmailMultiAlternatives(
             subject=subject,
             body=_build_plain_body(record),       # plain-text fallback
-            from_email=settings.DEFAULT_FROM_EMAIL,
+            from_email=PAYROLL_EMAIL_FROM or settings.DEFAULT_FROM_EMAIL,
             to=[employee.email],
             cc=[cc_email] if cc_email else [],
             connection=connection,

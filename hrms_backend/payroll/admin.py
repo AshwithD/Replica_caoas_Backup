@@ -3,7 +3,7 @@
 from django.contrib import admin
 
 from .models import (
-    Client, CompOffAdjustment, EmailLog, Employee, EmployeeSalaryStructure, LeaveAdjustment,
+    ClientProfile, CompOffAdjustment, EmailLog, Employee, EmployeeSalaryStructure, LeaveAdjustment,
     OnHoldAdjustment, PayrollBatch, PayslipRecord, PayslipRecordEdit, SalaryAdvanceAdjustment,
 )
 
@@ -109,9 +109,11 @@ class EmployeeSalaryStructureAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at", "updated_at")
 
 
-@admin.register(Client)
-class ClientAdmin(admin.ModelAdmin):
-    list_display = ("name", "email", "phone", "gstin", "updated_at")
+@admin.register(ClientProfile)
+class ClientProfileAdmin(admin.ModelAdmin):
+    list_display = ("client", "payroll_email", "pdf_design", "payroll_is_active", "updated_at")
+    list_filter = ("pdf_design", "payroll_is_active")
+    search_fields = ("client__name",)
 
 
 @admin.register(Employee)
