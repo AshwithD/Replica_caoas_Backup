@@ -200,11 +200,11 @@ export default function PayrollWorkspace() {
           <WorkspaceHeader
             title="Payroll Automation"
             subtitle="Multi-client payroll — pick a client below to upload this month's payroll."
-            actions={
-              <Button size="sm" onClick={() => setShowAddClient(true)}>
-                <Plus size={14} /> Add Client
-              </Button>
-            }
+            // actions={
+            //   <Button size="sm" onClick={() => setShowAddClient(true)}>
+            //     <Plus size={14} /> Add Client
+            //   </Button>
+            // }
           />
         </Card>
       )}

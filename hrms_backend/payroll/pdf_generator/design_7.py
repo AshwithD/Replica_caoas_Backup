@@ -368,7 +368,8 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:
 
     # Client logo in top-left purple area
     logo_y = header_top - 16 * mm
-    logo = getattr(client, 'logo', None)
+    _profile = getattr(client, 'payroll_profile', None)
+    logo = getattr(_profile, 'payroll_logo', None) if _profile else None
     drawn_logo = False
     logo_file = getattr(logo, 'path', None) if logo else None
 

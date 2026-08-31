@@ -255,7 +255,8 @@ def _round(c, x, y, w, h, fill, stroke='#d9e1ea', radius=4*mm, width=.7):
 
 
 def _logo(c, client, x, y, max_w, max_h):
-    logo = getattr(client, 'logo', None)
+    _profile = getattr(client, 'payroll_profile', None)
+    logo = getattr(_profile, 'payroll_logo', None) if _profile else None
     if logo and PILImage:
         try:
             data = resized_logo_bytes(logo.path)
@@ -402,7 +403,8 @@ def _encrypt_pdf_inplace(path: Path, password: str) -> None:
 
 
 def generate_payslip_pdf(record: PayslipRecord) -> str:
-    """Dispatches to the design module selected on record.batch.client.pdf_design.
+    """Dispatches to the design module selected on
+    record.batch.client.payroll_profile.pdf_design.
 
     design_1..design_8 are full, self-contained copies of this file's
     original renderer (one per visual layout), so every design — including
@@ -410,6 +412,7 @@ def generate_payslip_pdf(record: PayslipRecord) -> str:
     any unrecognised/blank pdf_design value, so this never breaks payslip
     generation for an unmigrated client row.
     """
-    design = getattr(record.batch.client, 'pdf_design', 1)
+    _profile = getattr(record.batch.client, 'payroll_profile', None)
+    design = getattr(_profile, 'pdf_design', 1) if _profile else 1
     module = DESIGN_MODULES.get(design, design_1)
     return module.generate_payslip_pdf(record)

@@ -313,7 +313,8 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:
     c.restoreState()
 
     # Left: Client Logo (dynamic, no hardcoded tagline)
-    logo = getattr(client, 'logo', None)
+    _profile = getattr(client, 'payroll_profile', None)
+    logo = getattr(_profile, 'payroll_logo', None) if _profile else None
     drawn_logo = False
     logo_w, logo_h = 38 * mm, 12 * mm
     logo_y = header_top - 6 * mm

@@ -205,7 +205,8 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:
 
     # Top of sidebar: Logo / Company Name
     y = H - 20 * mm
-    logo = getattr(client, 'logo', None)
+    _profile = getattr(client, 'payroll_profile', None)
+    logo = getattr(_profile, 'payroll_logo', None) if _profile else None
     drawn_logo = False
     if logo and PILImage and getattr(logo, 'path', None) and Path(logo.path).exists():
         try:

@@ -237,7 +237,8 @@ def _round(c, x, y, w, h, fill, stroke='#d9e1ea', radius=4*mm, width=.7):
 
 
 def _logo(c, client, x, y, max_w, max_h):
-    logo = getattr(client, 'logo', None)
+    _profile = getattr(client, 'payroll_profile', None)
+    logo = getattr(_profile, 'payroll_logo', None) if _profile else None
     if logo and PILImage:
         try:
             data = resized_logo_bytes(logo.path)
