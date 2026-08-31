@@ -1,38 +1,13 @@
 """apps/payroll/tasks/tasks.py"""
 
-import os
-from pathlib import Path
 from celery import shared_task
-from django.core.mail import get_connection
 from django.utils import timezone
-from dotenv import load_dotenv
 
 from django.contrib.auth import get_user_model
 User = get_user_model()
 
-from ..email_service import send_payslip_email
+from ..email_service import get_payroll_email_connection, send_payslip_email
 from ..models import PayrollBatch, PayslipRecord
-
-# Payroll uses its own email credentials, independent of the project-wide
-# EMAIL_HOST_* settings in hrms_backend/settings.py — sourced from
-# payroll/.env so this module stays self-contained (see AI context doc).
-load_dotenv(Path(__file__).resolve().parent / ".env")
-
-PAYROLL_EMAIL_HOST = os.environ.get("PAYROLL_EMAIL_HOST", "smtp.gmail.com")
-PAYROLL_EMAIL_PORT = int(os.environ.get("PAYROLL_EMAIL_PORT", "587"))
-PAYROLL_EMAIL_USE_TLS = os.environ.get("PAYROLL_EMAIL_USE_TLS", "True") == "True"
-PAYROLL_EMAIL_HOST_USER = os.environ.get("PAYROLL_EMAIL_HOST_USER", "")
-PAYROLL_EMAIL_HOST_PASSWORD = os.environ.get("PAYROLL_EMAIL_HOST_PASSWORD", "")
-
-
-def get_payroll_email_connection():
-    return get_connection(
-        host=PAYROLL_EMAIL_HOST,
-        port=PAYROLL_EMAIL_PORT,
-        username=PAYROLL_EMAIL_HOST_USER,
-        password=PAYROLL_EMAIL_HOST_PASSWORD,
-        use_tls=PAYROLL_EMAIL_USE_TLS,
-    )
 
 
 @shared_task
