@@ -15,6 +15,7 @@ from pathlib import Path
 from django.conf import settings
 from django.utils.text import slugify
 from reportlab.lib import colors
+from reportlab.lib.utils import ImageReader
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib.pdfencrypt import StandardEncryption
@@ -199,12 +200,15 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:
     drawn_logo = False
     if logo and PILImage and getattr(logo, 'path', None) and Path(logo.path).exists():
         try:
-            with PILImage.open(logo.path) as im:
+            data = resized_logo_bytes(logo.path)
+            if not data:
+                raise ValueError('logo resize failed')
+            with PILImage.open(io.BytesIO(data)) as im:
                 iw, ih = im.size
             ratio = min(48 * mm / iw, 15 * mm / ih)
             lw, lh = iw * ratio, ih * ratio
             lx = (W - lw) / 2
-            c.drawImage(logo.path, lx, y - lh, lw, lh, mask='auto')
+            c.drawImage(ImageReader(io.BytesIO(data)), lx, y - lh, lw, lh, mask='auto')
             y -= (lh + 2 * mm)
             drawn_logo = True
         except Exception:

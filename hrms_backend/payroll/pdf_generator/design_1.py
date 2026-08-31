@@ -16,6 +16,7 @@ from pathlib import Path
 from django.conf import settings
 from django.utils.text import slugify
 from reportlab.lib import colors
+from reportlab.lib.utils import ImageReader
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib.pdfencrypt import StandardEncryption
@@ -239,10 +240,12 @@ def _logo(c, client, x, y, max_w, max_h):
     logo = getattr(client, 'logo', None)
     if logo and PILImage:
         try:
-            with PILImage.open(logo.path) as im:
-                iw, ih = im.size
-            ratio = min(max_w/iw, max_h/ih); w,h=iw*ratio,ih*ratio
-            c.drawImage(logo.path,x+(max_w-w)/2,y+(max_h-h)/2,w,h,mask='auto'); return
+            data = resized_logo_bytes(logo.path)
+            if data:
+                with PILImage.open(io.BytesIO(data)) as im:
+                    iw, ih = im.size
+                ratio = min(max_w/iw, max_h/ih); w,h=iw*ratio,ih*ratio
+                c.drawImage(ImageReader(io.BytesIO(data)),x+(max_w-w)/2,y+(max_h-h)/2,w,h,mask='auto'); return
         except Exception: pass
     c.setFont(_BOLD,12); c.setFillColor(colors.white); c.drawCentredString(x+max_w/2,y+max_h/2-4,(client.name or 'COMPANY').upper()[:13])
 

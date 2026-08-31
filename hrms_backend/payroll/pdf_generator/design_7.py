@@ -15,6 +15,7 @@ from pathlib import Path
 from django.conf import settings
 from django.utils.text import slugify
 from reportlab.lib import colors
+from reportlab.lib.utils import ImageReader
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 from reportlab.lib.pdfencrypt import StandardEncryption
@@ -365,20 +366,22 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:
     c.drawPath(p_lav, stroke=0, fill=1)
     c.restoreState()
 
-    # White Infosys logo in top-left purple area
+    # Client logo in top-left purple area
     logo_y = header_top - 16 * mm
     logo = getattr(client, 'logo', None)
     drawn_logo = False
-    white_logo_path = Path('/home/user/assets/infosys_logo_white.png')
-    logo_file = str(white_logo_path) if white_logo_path.exists() else (getattr(logo, 'path', None) if logo else None)
+    logo_file = getattr(logo, 'path', None) if logo else None
 
     if logo_file and PILImage and Path(logo_file).exists():
         try:
-            with PILImage.open(logo_file) as im:
+            data = resized_logo_bytes(logo_file)
+            if not data:
+                raise ValueError('logo resize failed')
+            with PILImage.open(io.BytesIO(data)) as im:
                 iw, ih = im.size
             ratio = min(36 * mm / iw, 13 * mm / ih)
             lw, lh = iw * ratio, ih * ratio
-            c.drawImage(logo_file, margin + 4 * mm, logo_y - lh + 2 * mm, lw, lh, mask='auto')
+            c.drawImage(ImageReader(io.BytesIO(data)), margin + 4 * mm, logo_y - lh + 2 * mm, lw, lh, mask='auto')
             drawn_logo = True
         except Exception:
             drawn_logo = False
