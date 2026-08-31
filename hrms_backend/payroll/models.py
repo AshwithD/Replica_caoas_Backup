@@ -777,6 +777,12 @@ class EmployeeSalaryStructure(models.Model):
     monthly_gross = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     vpf = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     pf_opted = models.BooleanField(default=True)
+    employer_pf = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0,
+        help_text="Employer's PF contribution (12% of Basic, capped at Rs 1,800). "
+                  "Computed automatically when the structure is built from CTC "
+                  "(build_from_ctc) — informational on the payslip, never part of net pay.",
+    )
 
     change_reason = models.CharField(max_length=255, blank=True)
 
@@ -842,8 +848,10 @@ class EmployeeSalaryStructure(models.Model):
         hra = max(Decimal("0"), min(basic * Decimal("0.5"), monthly_pool - basic - current_lta))
         special_allowance = max(Decimal("0"), monthly_pool - basic - hra - current_lta)
 
+        # Employer PF reserve — computed BEFORE the carve-out so the value
+        # reflects what was reserved, not what survived the carve.
+        reserve = pf_reserve(basic)
         if pf_opted:
-            reserve = pf_reserve(basic)
             from_sa = min(special_allowance, reserve)
             special_allowance -= from_sa
             shortfall = reserve - from_sa
@@ -866,6 +874,7 @@ class EmployeeSalaryStructure(models.Model):
             "fbp": Decimal("0"),
             "vpf": Decimal("0"),
             "pf_opted": pf_opted,
+            "employer_pf": reserve.quantize(q),
         }
 
 

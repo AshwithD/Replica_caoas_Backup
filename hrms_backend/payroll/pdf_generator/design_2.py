@@ -288,6 +288,15 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:
     # Net Take-Home Card at Bottom of Sidebar
     card_h = 32 * mm
     card_y = 15 * mm
+
+    # Employer PF disclosure (sidebar, directly above the net card)
+    _amount = getattr(structure, 'employer_pf', None) if structure else None
+    if _amount and _amount > 0:
+        c.setFont(_FONT, 7)
+        c.setFillColor(colors.HexColor(SIDEBAR_MUTED))
+        c.drawString(sx, card_y + card_h + 5.5 * mm, f"Employer PF ₹{_money(_amount)} — for info, not deducted")
+        c.drawString(sx, card_y + card_h + 2 * mm, "Gross = Earned + Employer PF")
+
     c.saveState()
     c.setFillColor(colors.HexColor('#13213a'))
     c.setStrokeColor(colors.HexColor('#3d495d'))

@@ -538,15 +538,42 @@ class EmployeeSerializer(serializers.ModelSerializer):
 # ── Salary structure ───────────────────────────────────────────────────────
 
 class EmployeeSalaryStructureSerializer(serializers.ModelSerializer):
+    employer_pf = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
+
     class Meta:
         model = EmployeeSalaryStructure
         fields = [
             "id", "employee", "effective_from", "ctc_annual", "monthly_gross",
             "original_basic_da", "original_hra", "original_special_allowance",
-            "original_lta", "nps_allowance", "fbp", "vpf", "pf_opted", "change_reason",
-            "created_by", "created_at", "updated_at",
+            "original_lta", "nps_allowance", "fbp", "vpf", "pf_opted", "employer_pf",
+            "change_reason", "created_by", "created_at", "updated_at",
         ]
-        read_only_fields = ["id", "created_by", "created_at", "updated_at"]
+        read_only_fields = ["id", "employer_pf", "created_by", "created_at", "updated_at"]
+
+    @staticmethod
+    def _derive_employer_pf(basic_da, pf_opted):
+        """Employer PF = 12% of Basic, capped at Rs 1,800 (Rs 15,000 ceiling).
+        Always derived server-side — the client cannot set/override it."""
+        from decimal import Decimal as D, ROUND_HALF_UP
+        if not pf_opted:
+            return D("0")
+        basic = D(basic_da or 0)
+        return min(basic * D("0.12"), D("1800")).quantize(D("0.01"), rounding=ROUND_HALF_UP)
+
+    def create(self, validated_data):
+        validated_data["employer_pf"] = self._derive_employer_pf(
+            validated_data.get("original_basic_da"),
+            validated_data.get("pf_opted", True),
+        )
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        if "original_basic_da" in validated_data or "pf_opted" in validated_data:
+            validated_data["employer_pf"] = self._derive_employer_pf(
+                validated_data.get("original_basic_da", instance.original_basic_da),
+                validated_data.get("pf_opted", instance.pf_opted),
+            )
+        return super().update(instance, validated_data)
 
 
 class EmployeeSalaryStructureAutoCalcSerializer(serializers.Serializer):

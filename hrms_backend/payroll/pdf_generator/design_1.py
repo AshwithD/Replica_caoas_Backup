@@ -308,6 +308,19 @@ def _draw_money_card(c, x, y, w, h, accent, tint, title, icon, rows):
         c.drawRightString(x+w-6*mm,yy+row_h/2-3,value)
 
 
+def _employer_pf_note(c, structure, cx, y):
+    """One-line employer-PF disclosure, drawn in the same quiet slate style
+    as the system-generated footer note. Skipped when there is no structure
+    or no employer PF (pf_opted=False / basic below ceiling)."""
+    amount = getattr(structure, 'employer_pf', None) if structure else None
+    if not amount or amount <= 0:
+        return
+    text = f"Employer PF ₹{_money(amount)} — for information only, not deducted · Gross = Earned + Employer PF"
+    c.setFont(_FONT, 7.5)
+    c.setFillColor(colors.HexColor('#475569'))
+    c.drawCentredString(cx, y, text)
+
+
 def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:  # noqa: ARG001
     employee, client, batch = record.employee, record.batch.client, record.batch
     structure, pf_opted = _structure(record)
@@ -350,7 +363,8 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:  # noqa: 
 
     # Net, amount words and security cards retain the reference hierarchy.
     # Net salary is a single calm take-home panel instead of a heavy banner.
-    ny=cy-card_h-5*mm; nh=25*mm
+    _employer_pf_note(c, structure, W/2, cy-card_h-8*mm)
+    ny=cy-card_h-12*mm; nh=25*mm
     _round(c, margin, ny-nh, content, nh, '#ffffff', '#d7e3ef', 5*mm, .8)
     c.setFillColor(colors.HexColor('#edf8f0'))
     c.roundRect(margin+4*mm, ny-nh+4*mm, content-8*mm, nh-8*mm, 3*mm, stroke=0, fill=1)

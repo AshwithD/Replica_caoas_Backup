@@ -150,7 +150,7 @@ export default function ChooseDesignModal({ client, onClose, onSaved }) {
   const save = () => {
     mutateSaveClient.mutate(
       { id: client.id, formData: { pdf_design: selected } },
-      { onSuccess: () => { onSaved?.(); onClose?.(); } }
+      { onSuccess: () => { onSaved?.(selected); onClose?.(); } }
     );
   };
 

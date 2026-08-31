@@ -253,6 +253,19 @@ def _draw_icon(c, kind, x, y, size, colour='#000000'):
     c.restoreState()
 
 
+def _employer_pf_note(c, structure, cx, y):
+    """One-line employer-PF disclosure, drawn in the same quiet slate style
+    as the system-generated footer note. Skipped when there is no structure
+    or no employer PF (pf_opted=False / basic below ceiling)."""
+    amount = getattr(structure, 'employer_pf', None) if structure else None
+    if not amount or amount <= 0:
+        return
+    text = f"Employer PF ₹{_money(amount)} — for information only, not deducted · Gross = Earned + Employer PF"
+    c.setFont(_FONT, 7.5)
+    c.setFillColor(colors.HexColor('#475569'))
+    c.drawCentredString(cx, y, text)
+
+
 def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:
     employee, client, batch = record.employee, record.batch.client, record.batch
     structure, pf_opted = _structure(record)
@@ -523,7 +536,8 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:
     # ----------------------------------------------------
     # Net Salary Card - EXACT reference
     # ----------------------------------------------------
-    net_top = table_y - 5 * mm
+    _employer_pf_note(c, structure, W/2, table_y - 8.5*mm)
+    net_top = table_y - 13 * mm
     net_h = 26 * mm
     net_y = net_top - net_h
 

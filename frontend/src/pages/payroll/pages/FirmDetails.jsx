@@ -1,15 +1,17 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Building2, Mail, Phone, FileText, Pencil } from "lucide-react";
+import { Plus, Building2, Mail, Phone, FileText, Pencil, Palette } from "lucide-react";
 import { Badge, Button, Card, ErrorState, Input, Modal, Skeleton, Textarea } from "../_kit/components/primitives";
 import { useClients, useAppMutations } from "../_kit/hooks/hooks";
 import PageHero from "../_kit/components/PageHero";
 import EmptyState from "../_kit/components/EmptyState";
 import Breadcrumb from "../_kit/components/Breadcrumb";
+import ChooseDesignModal from "../modals/ChooseDesignModal";
 
 const FIELDS = [
   ["name", "Client Name", "text"],
   ["email", "Email", "email"],
+  ["payroll_email", "Payroll Email (optional — defaults to Email)", "email"],
   ["phone", "Phone", "text"],
   ["pan", "PAN", "text"],
   ["tan", "TAN", "text"],
@@ -22,6 +24,7 @@ export function ClientFormModal({ client, onClose, onSaved }) {
   const [form, setForm] = useState({
     name: client?.name || "",
     email: client?.email || "",
+    payroll_email: client?.payroll_email || "",
     phone: client?.phone || "",
     pan: client?.pan || "",
     tan: client?.tan || "",
@@ -30,6 +33,8 @@ export function ClientFormModal({ client, onClose, onSaved }) {
     address: client?.address || "",
   });
   const [logoFile, setLogoFile] = useState(null);
+  const [design, setDesign] = useState(client?.pdf_design || 1);
+  const [choosingDesign, setChoosingDesign] = useState(false);
   const [error, setError] = useState("");
 
   const save = async () => {
@@ -42,6 +47,7 @@ export function ClientFormModal({ client, onClose, onSaved }) {
       const body = new FormData();
       Object.entries(form).forEach(([k, v]) => body.append(k, v ?? ""));
       if (logoFile) body.append("logo", logoFile);
+      body.append("pdf_design", design);
       await mutateSaveClient.mutateAsync({ id: client?.id, formData: body });
       onSaved();
     } catch (err) {
@@ -91,6 +97,36 @@ export function ClientFormModal({ client, onClose, onSaved }) {
           <Textarea rows={3} value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} />
         </div>
 
+        <div className="space-y-2">
+          <div className="flex items-baseline justify-between">
+            <label className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
+              Payslip Design
+            </label>
+            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+              Design {design} selected
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-3 rounded-lg px-3 py-2.5" style={{ background: "var(--surface-3)", border: "1px solid var(--border-3)" }}>
+            <span className="text-sm" style={{ color: "var(--text-primary)" }}>
+              Design {design}
+            </span>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setChoosingDesign(true)}
+              disabled={!client}
+              title={client ? "Preview and pick a payslip design" : "Save the client first, then choose a design"}
+            >
+              <Palette size={13} /> Choose Design
+            </Button>
+          </div>
+          {!client && (
+            <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+              Design previews become available after the client is saved.
+            </p>
+          )}
+        </div>
+
         {error && <p className="text-xs" style={{ color: "var(--red-text)" }}>{error}</p>}
 
         <div className="flex justify-end gap-2 pt-1" style={{ borderTop: "1px solid var(--border-1)" }}>
@@ -100,6 +136,17 @@ export function ClientFormModal({ client, onClose, onSaved }) {
           </Button>
         </div>
       </div>
+
+      {choosingDesign && client && (
+        <ChooseDesignModal
+          client={client}
+          onClose={() => setChoosingDesign(false)}
+          onSaved={(picked) => {
+            setDesign(picked ?? client?.pdf_design ?? 1);
+            setChoosingDesign(false);
+          }}
+        />
+      )}
     </Modal>
   );
 }
