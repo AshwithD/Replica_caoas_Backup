@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Building2, Plus, Layers, Clock3, CheckCircle2,
   AlertTriangle, Loader2, ArrowUpRight, FileSpreadsheet,
-  LayoutGrid, List,
+  LayoutGrid, List, ShieldCheck, Inbox,
 } from "lucide-react";
 import { useClients, useOverviewStats, useBatches } from "../_kit/hooks/hooks";
 import { ErrorState, Skeleton, Button, Card, Badge } from "../_kit/components/primitives";
@@ -200,11 +200,16 @@ export default function PayrollWorkspace() {
           <WorkspaceHeader
             title="Payroll Automation"
             subtitle="Multi-client payroll — pick a client below to upload this month's payroll."
-            // actions={
-            //   <Button size="sm" onClick={() => setShowAddClient(true)}>
-            //     <Plus size={14} /> Add Client
-            //   </Button>
-            // }
+            actions={
+              <>
+                <Button size="sm" variant="secondary" onClick={() => navigate("/payroll/portal-users")}>
+                  <ShieldCheck size={14} /> Portal Users
+                </Button>
+                <Button size="sm" variant="secondary" onClick={() => navigate("/payroll/portal-submissions")}>
+                  <Inbox size={14} /> Portal Submissions
+                </Button>
+              </>
+            }
           />
         </Card>
       )}

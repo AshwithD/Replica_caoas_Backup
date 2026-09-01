@@ -124,8 +124,19 @@ function StepTracker({ status, total, reviewedCount, sentCount, uploadedAt }) {
 }
 
 /* ── editable cell ──────────────────────────────────────────── */
-function Editable({ record, field, editing, setEditing, save, money, locked, readOnly, accentBg, accentColor, suppressLockIcon }) {
-  const active = !locked && editing?.id === record.id && editing?.field === field;
+// Unique id per Editable instance. Without this, the SAME field rendered
+// twice (once in the table, once in the preview drawer — e.g. lop_days,
+// actual_working_days, gross_salary) would BOTH switch into <input autoFocus>
+// mode when `editing` matches { id, field }, and the two autofocus inputs
+// fight: the second steals focus from the first, whose onBlur then fires,
+// saves the unchanged value and calls setEditing(null) — so the field the
+// user just clicked closes instantly ("moves out of field when clicked").
+// Scoping `editing` to the exact instance that was clicked fixes it.
+let _editableUid = 0;
+
+function Editable({ record, field, editing, setEditing, save, money, locked, readOnly, accentBg, accentColor, suppressLockIcon, lockedTitle }) {
+  const [uid] = useState(() => ++_editableUid);
+  const active = !locked && editing?.uid === uid && editing?.id === record.id && editing?.field === field;
   if (active) return (
     <input
       autoFocus
@@ -141,7 +152,7 @@ function Editable({ record, field, editing, setEditing, save, money, locked, rea
     <span
       className="inline-flex items-center gap-1 rounded px-2 py-1 text-sm cursor-not-allowed"
       style={{ background: accentBg || "var(--surface-2)", color: accentColor || "var(--text-muted)", cursor: "not-allowed" }}
-      title={readOnly ? "Computed automatically — not directly editable" : "Locked — payslip already generated"}
+      title={lockedTitle || (readOnly ? "Computed automatically — not directly editable" : "Locked — payslip already generated")}
     >
       {readOnly && !suppressLockIcon && <Lock size={10} />}
       {money ? formatCurrency(record[field]) : record[field]}
@@ -153,7 +164,7 @@ function Editable({ record, field, editing, setEditing, save, money, locked, rea
       style={{ color: "var(--text-secondary)" }}
       onMouseEnter={(e) => { e.currentTarget.style.background = "var(--blue-bg-subtle)"; e.currentTarget.style.color = "var(--text-primary)"; }}
       onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-secondary)"; }}
-      onClick={(e) => { e.stopPropagation(); setEditing({ id: record.id, field }); }}
+      onClick={(e) => { e.stopPropagation(); setEditing({ id: record.id, field, uid }); }}
     >
       {money ? formatCurrency(record[field]) : record[field]}
     </button>
@@ -251,11 +262,13 @@ function ExpandedRecord({ record, editing, setEditing, saveCell, locked, canEdit
 
   return (
     <div className="space-y-3">
-      {/* Edit Breakdown Toggle */}
+      {/* Edit Breakdown Toggle — sits ABOVE the summary fields (user
+          preference), unlocks both the summary row below and the
+          earnings/deductions panels further down. */}
       {true && (
         <div className="flex items-center justify-between px-1 py-2">
           <span className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>
-            {locked ? "Payslip breakdown (locked)" : breakdownEditMode ? "Editing payslip breakdown" : "Payslip breakdown (read-only)"}
+            {locked ? "Payslip details (locked)" : breakdownEditMode ? "Editing payslip details" : "Payslip details (read-only)"}
           </span>
           <button
             type="button"
@@ -270,10 +283,65 @@ function ExpandedRecord({ record, editing, setEditing, saveCell, locked, canEdit
             }
           >
             {breakdownEditMode ? <Lock size={12} /> : <Edit3 size={12} />}
-            {breakdownEditMode ? "Done editing" : "Edit breakdown"}
+            {breakdownEditMode ? "Done editing" : "Edit details"}
           </button>
         </div>
       )}
+
+      {/* ── attendance & pay summary — editable inline right here (via the
+          "Edit details" toggle above), so you never have to leave the
+          preview to fix Days Present / LOP / Paid Leave / Gross. Net is
+          always computed and stays read-only. ── */}
+      <div className="grid grid-cols-5 gap-2">
+        {[
+          { label: "Days Present", field: "actual_working_days" },
+          { label: "LOP", field: "lop_days" },
+          { label: "Paid Leave", field: "paid_leave_days" },
+          { label: "Gross", field: "gross_salary", money: true },
+        ].map(({ label, field, money }) => (
+          <div
+            key={field}
+            className="min-w-0 rounded-lg px-2 py-2"
+            style={{ background: "var(--surface-2)", border: "1px solid var(--border-2)" }}
+          >
+            <div
+              className="truncate text-[9px] font-semibold uppercase tracking-wider"
+              style={{ color: "var(--text-muted)" }}
+            >
+              {label}
+            </div>
+            <div className="mt-1 text-xs font-bold" style={{ color: "var(--text-strong)" }}>
+              <Editable
+                record={record}
+                field={field}
+                editing={editing}
+                setEditing={setEditing}
+                save={saveCell}
+                money={money}
+                locked={locked || !breakdownEditMode}
+                lockedTitle={locked ? "Locked — payslip already generated" : "Click \"Edit details\" above to change this"}
+              />
+            </div>
+          </div>
+        ))}
+        <div
+          className="min-w-0 rounded-lg px-2 py-2"
+          style={{ background: "var(--surface-2)", border: "1px solid var(--border-2)" }}
+        >
+          <div
+            className="truncate text-[9px] font-semibold uppercase tracking-wider"
+            style={{ color: "var(--text-muted)" }}
+          >
+            Net
+          </div>
+          <div
+            className="mt-1 text-xs font-bold"
+            style={{ color: Number(record.net_salary) < 0 ? "var(--red-text)" : "var(--green-text)" }}
+          >
+            {Number(record.net_salary) < 0 ? "-" : ""}{formatCurrency(Math.abs(Number(record.net_salary)))}
+          </div>
+        </div>
+      </div>
 
       {/* 2-Column Grid: Earnings and Deductions */}
       <div className="grid gap-3 lg:grid-cols-2">
@@ -545,7 +613,7 @@ function RecordDrawer({ record, batch, editing, setEditing, saveCell, locked, ca
         </div>
 
         {activeSection && (
-          <div className="rounded-xl p-4 mb-5" style={{ background: "var(--surface-1)", border: `1px solid ${activeSection === "employee_info" ? amberAccent.border : (ACCENT_COLORS[ledgerChipDefs(record).find((c) => c.key === activeSection)?.color] || ACCENT_COLORS.blue).border}` }}>
+          <div key="record-active-section" className="rounded-xl p-4 mb-5" style={{ background: "var(--surface-1)", border: `1px solid ${activeSection === "employee_info" ? amberAccent.border : (ACCENT_COLORS[ledgerChipDefs(record).find((c) => c.key === activeSection)?.color] || ACCENT_COLORS.blue).border}` }}>
             {activeSection === "employee_info" && (
               <>
                 <div className="mb-3 flex items-center gap-2">
@@ -703,6 +771,7 @@ function RecordDrawer({ record, batch, editing, setEditing, saveCell, locked, ca
 
         {ledgerModalOpen && (
           <LedgerAdjustmentModal
+            key="record-ledger-modal"
             employee={employeeForModal}
             type={ledgerModalOpen}
             closingBalance={
@@ -722,6 +791,7 @@ function RecordDrawer({ record, batch, editing, setEditing, saveCell, locked, ca
         )}
 
         <ExpandedRecord
+          key="record-breakdown"
           record={record}
           editing={editing}
           setEditing={setEditing}
@@ -1075,8 +1145,32 @@ export default function BatchReview() {
       },
     });
   };
-  const saveCell = (record, field, value) =>
-    mutateUpdateRecord.mutate({ id: record.id, data: { [field]: value } }, { onSuccess: () => setEditing(null) });
+  const saveCell = (record, field, value) => {
+    // NOTE: the payload must be flat — { id, [field]: value } — because
+    // updateRecord() in hooks.js destructures `{ id, ...fields }` and
+    // PATCHes `fields` as the body. The old shape `{ id, data: {...} }`
+    // sent the JSON body `{ "data": {...} }`, which DRF silently ignored
+    // (no such field), so edits appeared to "save" but never changed a
+    // thing and the UI reverted to stale data on the next render.
+    mutateUpdateRecord
+      .mutateAsync({ id: record.id, [field]: value })
+      .then((updated) => {
+        setEditing(null);
+        // Merge the server's recomputed record back into the list in place
+        // (no full refetch) so the table AND the open drawer show the new
+        // values immediately without flashing the skeleton or reverting.
+        recordsQuery.setData((list) => {
+          const arr = Array.isArray(list) ? list : list?.results || [];
+          return arr.map((r) => (r.id === updated.id ? updated : r));
+        });
+      })
+      .catch(() => {
+        // Validation failed (negative value, already-emailed record, etc.):
+        // leave edit mode and re-sync with the server's truth.
+        setEditing(null);
+        recordsQuery.refetch();
+      });
+  };
 
   // A batch can only ever leave SENDING via the Celery task that's
   // actually running it — if that task dies unexpectedly (worker crash,

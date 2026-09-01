@@ -8,6 +8,7 @@ from .views import (
     PayrollTemplateViewSet, PayslipRecordViewSet, SalaryAdvanceAdjustmentViewSet,
     SalaryAdvanceViewSet,
 )
+from .portal.views import PortalSubmissionAdminViewSet, PortalUserAdminViewSet
 
 router = DefaultRouter()
 router.register(r"batches", PayrollBatchViewSet, basename="payroll-batch")
@@ -22,5 +23,7 @@ router.register(r"salary-advances", SalaryAdvanceViewSet, basename="salary-advan
 router.register(r"clients", ClientViewSet, basename="payroll-client")
 router.register(r"employees", EmployeeViewSet, basename="payroll-employee")
 router.register(r"salary-structures", EmployeeSalaryStructureViewSet, basename="salary-structure")
+router.register(r"portal-users", PortalUserAdminViewSet, basename="portal-user")
+router.register(r"portal-submissions", PortalSubmissionAdminViewSet, basename="portal-submission-admin")
 
 urlpatterns = router.urls

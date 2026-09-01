@@ -9,6 +9,8 @@ const FirmDetailsPage      = lazy(() => import("./routes/FirmDetailsPage"));
 const EmployeesListPage    = lazy(() => import("./routes/EmployeesListPage"));
 const EmployeeDetailPage   = lazy(() => import("./routes/EmployeeDetailPage"));
 const EmailLogsPage        = lazy(() => import("./routes/EmailLogsPage"));
+const PortalUsersPage      = lazy(() => import("./routes/PortalUsersPage"));
+const PortalSubmissionsPage = lazy(() => import("./routes/PortalSubmissionsPage"));
 
 const PageLoader = () => (
   <div style={{ display: "flex", justifyContent: "center", marginTop: 80 }}>
@@ -35,6 +37,8 @@ export default function PayrollRoutes() {
         <Route path="employees" element={<EmployeesListPage />} />
         <Route path="employees/:id" element={<EmployeeDetailPage />} />
         <Route path="email-logs/:batchId" element={<EmailLogsPage />} />
+        <Route path="portal-users" element={<PortalUsersPage />} />
+        <Route path="portal-submissions" element={<PortalSubmissionsPage />} />
       </Routes>
     </Suspense>
   );

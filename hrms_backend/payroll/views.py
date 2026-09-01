@@ -40,6 +40,8 @@ from .models import (
     OnHoldAdjustment, PayrollBatch, PayslipRecord, PayslipRecordEdit, SalaryAdvance,
     SalaryAdvanceAdjustment, get_latest_salary_structure,
 )
+from .portal.models import PortalAdjustment
+from .portal.services import materialize_due_hold_releases
 from clients.models import Client
 from .pdf_generator import DESIGN_MODULES, generate_payslip_pdf
 from .serializers import (
@@ -203,6 +205,208 @@ def _apply_money_adjustment(record, field: str, amount: Decimal):
     record.save()
 
 
+def _build_record_for_employee(employee, batch, row, year, month, days_in_month, uploaded_by):
+    """
+    Creates one PayslipRecord for `employee` in `batch` from `row` (a parsed
+    excel row, or a synthetic full-attendance row for portal-generated
+    batches), folding in all pending ledgers (comp-off, leave, salary
+    advance, on hold) and the month's portal one-time adjustments.
+    Returns (record, missing_structure).
+    """
+    latest_structure = get_latest_salary_structure(employee)
+    missing_structure = latest_structure is None
+
+    # Comp-off ledger: this month's opening balance is the
+    # closing balance of this employee's most recent PRIOR
+    # payslip record (by batch year/month), or 0 if this is
+    # their first-ever record, PLUS any manual CompOffAdjustment
+    # corrections made since that prior record (e.g. HR grants/
+    # deducts days via the Employee Detail page) — see
+    # apps.employees.views.EmployeeViewSet.comp_off_adjustments.
+    # Read-only from the reviewer's perspective otherwise —
+    # never uploaded, never manually set on the payslip itself.
+    prior_record = (
+        PayslipRecord.objects
+        .filter(employee=employee)
+        .filter(models.Q(batch__year__lt=year) | models.Q(batch__year=year, batch__month__lt=month))
+        .order_by("-batch__year", "-batch__month")
+        .first()
+    )
+    pending_adjustments = list(
+        CompOffAdjustment.objects.filter(employee=employee, applied_in_record__isnull=True)
+    )
+    pending_adjustment_total = sum((a.amount for a in pending_adjustments), Decimal("0"))
+    comp_off_opening_balance = (
+        (prior_record.comp_off_closing_balance if prior_record else Decimal("0"))
+        + pending_adjustment_total
+    )
+
+    # General leave ledger: same "prior closing balance + any
+    # pending manual adjustment" pattern as comp-off above —
+    # a pending adjustment here is typically a cashout (see
+    # apps.employees.views.EmployeeViewSet.leave_adjustments).
+    pending_leave_adjustments = list(
+        LeaveAdjustment.objects.filter(employee=employee, applied_in_record__isnull=True)
+    )
+    pending_leave_adjustment_total = sum((a.amount for a in pending_leave_adjustments), Decimal("0"))
+    leave_opening_balance = (
+        (prior_record.leave_closing_balance if prior_record else Decimal("0"))
+        + pending_leave_adjustment_total
+    )
+    is_probation = is_in_probation(employee.hire_date, year, month)
+
+    computed = calculate_payslip_fields(
+        latest_structure, row, month, days_in_month,
+        comp_off_opening_balance=comp_off_opening_balance,
+        leave_opening_balance=leave_opening_balance,
+        is_probation=is_probation,
+    )
+
+    # Salary Advance / On Hold ledgers: opening balance is a
+    # plain carry-forward of the prior record's closing balance.
+    # Pending adjustments are NOT folded into opening directly —
+    # they become this month's real disbursed/recovered (or
+    # deducted/released) movement, which both (a) shows up as
+    # an actual earning/deduction line on this month's payslip
+    # and (b) is what PayslipRecord.save() uses to (re)compute
+    # the closing balance. Split by sign so a mix of both types
+    # pending at once (e.g. one grant + one recovery) shows
+    # correctly as both lines rather than a single net figure.
+    # Auto-generate this month's EMI recovery adjustment(s), if
+    # any of this employee's SalaryAdvance plans are due one —
+    # see _auto_generate_pending_emi_recoveries. Must run before
+    # the pending_advance_adjustments query right below so any
+    # newly created recovery rows are picked up by it this same
+    # cycle, same as a manual adjustment would be.
+    _auto_generate_pending_emi_recoveries(employee, generated_by=uploaded_by)
+
+    pending_advance_adjustments = list(
+        SalaryAdvanceAdjustment.objects.filter(employee=employee, applied_in_record__isnull=True)
+    )
+    salary_advance_opening_balance = (
+        prior_record.salary_advance_closing_balance if prior_record else Decimal("0")
+    )
+    salary_advance_disbursed = sum(
+        (a.amount for a in pending_advance_adjustments if a.amount >= 0), Decimal("0")
+    )
+    salary_advance_recovered = sum(
+        (-a.amount for a in pending_advance_adjustments if a.amount < 0), Decimal("0")
+    )
+
+    pending_on_hold_adjustments = list(
+        OnHoldAdjustment.objects.filter(employee=employee, applied_in_record__isnull=True)
+    )
+    on_hold_opening_balance = (
+        prior_record.on_hold_closing_balance if prior_record else Decimal("0")
+    )
+    on_hold_deducted = sum(
+        (a.amount for a in pending_on_hold_adjustments if a.amount >= 0), Decimal("0")
+    )
+    on_hold_released = sum(
+        (-a.amount for a in pending_on_hold_adjustments if a.amount < 0), Decimal("0")
+    )
+
+    # lta_upload/special_allowance_upload/nps_allowance_upload
+    # store the RAW excel figure alone (used later to
+    # reconstruct `row` for the attendance-edit recompute path
+    # — see the PayslipRecordEdit handling below). Captured
+    # here, before the pops, since row.get(...) below would
+    # otherwise see them already removed.
+    lta_upload = row.get("lta", Decimal("0"))
+    special_allowance_upload = row.get("special_allowance", Decimal("0"))
+    nps_allowance_upload = row.get("nps_allowance_earned", Decimal("0"))
+
+    # `computed` already carries the combined (prorated
+    # structure baseline + this raw upload figure) value for
+    # each of these three fields — see calculate_payslip_fields.
+    # They must be popped out of `row` before the **row/**computed
+    # spread below, or Python raises "got multiple values for
+    # keyword argument" since both dicts would supply the same key.
+    row.pop("lta", None)
+    row.pop("special_allowance", None)
+    row.pop("nps_allowance_earned", None)
+
+    # Portal-approved one-time earnings/deductions (retention
+    # bonus, other allowance, one-off recoveries, etc.) fold in
+    # here exactly like an excel column would: earnings land in
+    # commission_other, deductions in other_deduction.
+    # PayslipRecord.save() then recomputes earned/total/net from
+    # these components, so the figures stay consistent.
+    pending_portal_adjustments = list(
+        PortalAdjustment.objects.filter(
+            employee=employee, month=month, year=year,
+            applied_in_record__isnull=True,
+        )
+    )
+    portal_earnings = sum(
+        (a.amount for a in pending_portal_adjustments
+         if a.direction == PortalAdjustment.DIRECTION_EARNING),
+        Decimal("0"),
+    )
+    portal_deductions = sum(
+        (a.amount for a in pending_portal_adjustments
+         if a.direction == PortalAdjustment.DIRECTION_DEDUCTION),
+        Decimal("0"),
+    )
+    if portal_earnings or portal_deductions:
+        row["commission_other"] = Decimal(row.get("commission_other", 0) or 0) + portal_earnings
+        row["other_deduction"] = Decimal(row.get("other_deduction", 0) or 0) + portal_deductions
+
+    new_record = PayslipRecord.objects.create(
+        batch=batch,
+        employee=employee,
+        salary_structure_snapshot=latest_structure,
+        days_in_month=days_in_month,
+        salary_advance_opening_balance=salary_advance_opening_balance,
+        salary_advance_disbursed=salary_advance_disbursed,
+        salary_advance_recovered=salary_advance_recovered,
+        on_hold_opening_balance=on_hold_opening_balance,
+        on_hold_deducted=on_hold_deducted,
+        on_hold_released=on_hold_released,
+        lta_upload=lta_upload,
+        special_allowance_upload=special_allowance_upload,
+        nps_allowance_upload=nps_allowance_upload,
+        **row,
+        **computed,
+    )
+    if pending_adjustments:
+        CompOffAdjustment.objects.filter(
+            id__in=[a.id for a in pending_adjustments]
+        ).update(applied_in_record=new_record)
+    if pending_leave_adjustments:
+        LeaveAdjustment.objects.filter(
+            id__in=[a.id for a in pending_leave_adjustments]
+        ).update(applied_in_record=new_record)
+    if pending_advance_adjustments:
+        SalaryAdvanceAdjustment.objects.filter(
+            id__in=[a.id for a in pending_advance_adjustments]
+        ).update(applied_in_record=new_record)
+        # Recovery installments (amount < 0) tied to a
+        # SalaryAdvance plan have now been applied — advance
+        # months_recovered so the next batch knows this
+        # installment is done. The disbursement adjustment
+        # (amount >= 0) is excluded — it doesn't count as a
+        # recovered installment.
+        recovered_advance_ids = [
+            a.advance_id for a in pending_advance_adjustments
+            if a.advance_id is not None and a.amount < 0
+        ]
+        if recovered_advance_ids:
+            SalaryAdvance.objects.filter(id__in=recovered_advance_ids).update(
+                months_recovered=models.F("months_recovered") + 1
+            )
+    if pending_on_hold_adjustments:
+        OnHoldAdjustment.objects.filter(
+            id__in=[a.id for a in pending_on_hold_adjustments]
+        ).update(applied_in_record=new_record)
+    if pending_portal_adjustments:
+        PortalAdjustment.objects.filter(
+            id__in=[a.id for a in pending_portal_adjustments]
+        ).update(applied_in_record=new_record)
+
+    return new_record, missing_structure
+
+
 class PayrollBatchViewSet(AuditViewMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, IsAdminOrManagerRole]
     http_method_names = ["get", "post", "patch", "delete", "head", "options"]
@@ -336,172 +540,20 @@ class PayrollBatchViewSet(AuditViewMixin, viewsets.ModelViewSet):
                 error_log="\n".join(warnings),
                 uploaded_by=request.user,
             )
+            # Portal salary holds scheduled for release this month become
+            # negative on-hold adjustments now, so they fold into the
+            # records below as on_hold_released (paid back).
+            materialize_due_hold_releases(client, month, year, request.user)
             missing_structure_employees = []
             for row in parsed_rows:
                 employee = row.pop("employee")
                 row.pop("employee_code", None)
                 row.pop("row_number", None)
-                latest_structure = get_latest_salary_structure(employee)
-                if latest_structure is None:
+                _record, missing = _build_record_for_employee(
+                    employee, batch, row, year, month, days_in_month, request.user
+                )
+                if missing:
                     missing_structure_employees.append(employee)
-
-                # Comp-off ledger: this month's opening balance is the
-                # closing balance of this employee's most recent PRIOR
-                # payslip record (by batch year/month), or 0 if this is
-                # their first-ever record, PLUS any manual CompOffAdjustment
-                # corrections made since that prior record (e.g. HR grants/
-                # deducts days via the Employee Detail page) — see
-                # apps.employees.views.EmployeeViewSet.comp_off_adjustments.
-                # Read-only from the reviewer's perspective otherwise —
-                # never uploaded, never manually set on the payslip itself.
-                prior_record = (
-                    PayslipRecord.objects
-                    .filter(employee=employee)
-                    .filter(models.Q(batch__year__lt=year) | models.Q(batch__year=year, batch__month__lt=month))
-                    .order_by("-batch__year", "-batch__month")
-                    .first()
-                )
-                pending_adjustments = list(
-                    CompOffAdjustment.objects.filter(employee=employee, applied_in_record__isnull=True)
-                )
-                pending_adjustment_total = sum((a.amount for a in pending_adjustments), Decimal("0"))
-                comp_off_opening_balance = (
-                    (prior_record.comp_off_closing_balance if prior_record else Decimal("0"))
-                    + pending_adjustment_total
-                )
-
-                # General leave ledger: same "prior closing balance + any
-                # pending manual adjustment" pattern as comp-off above —
-                # a pending adjustment here is typically a cashout (see
-                # apps.employees.views.EmployeeViewSet.leave_adjustments).
-                pending_leave_adjustments = list(
-                    LeaveAdjustment.objects.filter(employee=employee, applied_in_record__isnull=True)
-                )
-                pending_leave_adjustment_total = sum((a.amount for a in pending_leave_adjustments), Decimal("0"))
-                leave_opening_balance = (
-                    (prior_record.leave_closing_balance if prior_record else Decimal("0"))
-                    + pending_leave_adjustment_total
-                )
-                is_probation = is_in_probation(employee.hire_date, year, month)
-
-                computed = calculate_payslip_fields(
-                    latest_structure, row, month, days_in_month,
-                    comp_off_opening_balance=comp_off_opening_balance,
-                    leave_opening_balance=leave_opening_balance,
-                    is_probation=is_probation,
-                )
-
-                # Salary Advance / On Hold ledgers: opening balance is a
-                # plain carry-forward of the prior record's closing balance.
-                # Pending adjustments are NOT folded into opening directly —
-                # they become this month's real disbursed/recovered (or
-                # deducted/released) movement, which both (a) shows up as
-                # an actual earning/deduction line on this month's payslip
-                # and (b) is what PayslipRecord.save() uses to (re)compute
-                # the closing balance. Split by sign so a mix of both types
-                # pending at once (e.g. one grant + one recovery) shows
-                # correctly as both lines rather than a single net figure.
-                # Auto-generate this month's EMI recovery adjustment(s), if
-                # any of this employee's SalaryAdvance plans are due one —
-                # see _auto_generate_pending_emi_recoveries. Must run before
-                # the pending_advance_adjustments query right below so any
-                # newly created recovery rows are picked up by it this same
-                # cycle, same as a manual adjustment would be.
-                _auto_generate_pending_emi_recoveries(employee, generated_by=request.user)
-
-                pending_advance_adjustments = list(
-                    SalaryAdvanceAdjustment.objects.filter(employee=employee, applied_in_record__isnull=True)
-                )
-                salary_advance_opening_balance = (
-                    prior_record.salary_advance_closing_balance if prior_record else Decimal("0")
-                )
-                salary_advance_disbursed = sum(
-                    (a.amount for a in pending_advance_adjustments if a.amount >= 0), Decimal("0")
-                )
-                salary_advance_recovered = sum(
-                    (-a.amount for a in pending_advance_adjustments if a.amount < 0), Decimal("0")
-                )
-
-                pending_on_hold_adjustments = list(
-                    OnHoldAdjustment.objects.filter(employee=employee, applied_in_record__isnull=True)
-                )
-                on_hold_opening_balance = (
-                    prior_record.on_hold_closing_balance if prior_record else Decimal("0")
-                )
-                on_hold_deducted = sum(
-                    (a.amount for a in pending_on_hold_adjustments if a.amount >= 0), Decimal("0")
-                )
-                on_hold_released = sum(
-                    (-a.amount for a in pending_on_hold_adjustments if a.amount < 0), Decimal("0")
-                )
-
-                # lta_upload/special_allowance_upload/nps_allowance_upload
-                # store the RAW excel figure alone (used later to
-                # reconstruct `row` for the attendance-edit recompute path
-                # — see the PayslipRecordEdit handling below). Captured
-                # here, before the pops, since row.get(...) below would
-                # otherwise see them already removed.
-                lta_upload = row.get("lta", Decimal("0"))
-                special_allowance_upload = row.get("special_allowance", Decimal("0"))
-                nps_allowance_upload = row.get("nps_allowance_earned", Decimal("0"))
-
-                # `computed` already carries the combined (prorated
-                # structure baseline + this raw upload figure) value for
-                # each of these three fields — see calculate_payslip_fields.
-                # They must be popped out of `row` before the **row/**computed
-                # spread below, or Python raises "got multiple values for
-                # keyword argument" since both dicts would supply the same key.
-                row.pop("lta", None)
-                row.pop("special_allowance", None)
-                row.pop("nps_allowance_earned", None)
-
-                new_record = PayslipRecord.objects.create(
-                    batch=batch,
-                    employee=employee,
-                    salary_structure_snapshot=latest_structure,
-                    days_in_month=days_in_month,
-                    salary_advance_opening_balance=salary_advance_opening_balance,
-                    salary_advance_disbursed=salary_advance_disbursed,
-                    salary_advance_recovered=salary_advance_recovered,
-                    on_hold_opening_balance=on_hold_opening_balance,
-                    on_hold_deducted=on_hold_deducted,
-                    on_hold_released=on_hold_released,
-                    lta_upload=lta_upload,
-                    special_allowance_upload=special_allowance_upload,
-                    nps_allowance_upload=nps_allowance_upload,
-                    **row,
-                    **computed,
-                )
-                if pending_adjustments:
-                    CompOffAdjustment.objects.filter(
-                        id__in=[a.id for a in pending_adjustments]
-                    ).update(applied_in_record=new_record)
-                if pending_leave_adjustments:
-                    LeaveAdjustment.objects.filter(
-                        id__in=[a.id for a in pending_leave_adjustments]
-                    ).update(applied_in_record=new_record)
-                if pending_advance_adjustments:
-                    SalaryAdvanceAdjustment.objects.filter(
-                        id__in=[a.id for a in pending_advance_adjustments]
-                    ).update(applied_in_record=new_record)
-                    # Recovery installments (amount < 0) tied to a
-                    # SalaryAdvance plan have now been applied — advance
-                    # months_recovered so the next batch knows this
-                    # installment is done. The disbursement adjustment
-                    # (amount >= 0) is excluded — it doesn't count as a
-                    # recovered installment.
-                    recovered_advance_ids = [
-                        a.advance_id for a in pending_advance_adjustments
-                        if a.advance_id is not None and a.amount < 0
-                    ]
-                    if recovered_advance_ids:
-                        SalaryAdvance.objects.filter(id__in=recovered_advance_ids).update(
-                            months_recovered=models.F("months_recovered") + 1
-                        )
-                if pending_on_hold_adjustments:
-                    OnHoldAdjustment.objects.filter(
-                        id__in=[a.id for a in pending_on_hold_adjustments]
-                    ).update(applied_in_record=new_record)
             batch.total_records = len(parsed_rows)
             batch.save(update_fields=["total_records", "updated_at"])
 
@@ -524,6 +576,124 @@ class PayrollBatchViewSet(AuditViewMixin, viewsets.ModelViewSet):
 
         serializer = PayrollBatchSerializer(batch, context={"request": request})
         return Response({"batch": serializer.data, "warnings": warnings}, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["post"], url_path="generate-from-portal")
+    def generate_from_portal(self, request):
+        """
+        Generate the payroll batch directly from the client's portal data —
+        no Excel upload. Every ACTIVE employee of the client gets a
+        PayslipRecord with full-month attendance (actual_working_days =
+        days_in_month, no LOP) so the client's approved portal items — new
+        joiners, revisions, advances, one-time earnings/deductions — flow
+        straight into the payslip. Attendance/LOP can still be edited in
+        Batch Review afterward.
+        """
+        client_id = request.data.get("client_id") or request.data.get("client")
+        month = request.data.get("month")
+        year = request.data.get("year")
+
+        if not all([client_id, month, year]):
+            return Response(
+                {"detail": "client_id, month, and year are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            month = int(month)
+            year = int(year)
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "month and year must be integers."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if month < 1 or month > 12:
+            return Response(
+                {"detail": "month must be between 1 and 12."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            client = Client.objects.get(pk=client_id)
+        except (Client.DoesNotExist, ValueError, TypeError):
+            return Response(
+                {"detail": "client_id does not match a known client."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if PayrollBatch.objects.filter(client=client, month=month, year=year).exists():
+            return Response(
+                {"detail": "Payroll batch already exists for this client, month, and year."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        days_in_month = calendar.monthrange(year, month)[1]
+        employees = list(
+            Employee.objects.filter(client=client, status=Employee.STATUS_ACTIVE)
+            .order_by("employee_code")
+        )
+
+        with transaction.atomic():
+            batch = PayrollBatch.objects.create(
+                client=client,
+                month=month,
+                year=year,
+                total_records=0,
+                uploaded_by=request.user,
+            )
+            # Same as the Excel path: materialize any portal salary holds
+            # whose release month is this batch's month.
+            materialize_due_hold_releases(client, month, year, request.user)
+            missing_structure_employees = []
+            for employee in employees:
+                # Synthetic full-attendance row (the portal carries no
+                # attendance data) — everything else defaults to zero and
+                # gets recomputed by calculate_payslip_fields / record.save().
+                row = {
+                    "actual_working_days": days_in_month,
+                    "extra_working_days": Decimal("0"),
+                    "paid_leave_days": Decimal("0"),
+                    "lop_days": Decimal("0"),
+                    "lta": Decimal("0"),
+                    "special_allowance": Decimal("0"),
+                    "nps_allowance_earned": Decimal("0"),
+                    "commission_other": Decimal("0"),
+                    "arrears": Decimal("0"),
+                    "reimbursements": Decimal("0"),
+                    "tds": Decimal("0"),
+                    "vpf_arrears": Decimal("0"),
+                    "nps_deduction_arrears": Decimal("0"),
+                    "loan_deduction": Decimal("0"),
+                    "lwf": Decimal("0"),
+                    "other_deduction": Decimal("0"),
+                }
+                _record, missing = _build_record_for_employee(
+                    employee, batch, row, year, month, days_in_month, request.user
+                )
+                if missing:
+                    missing_structure_employees.append(employee)
+
+            batch.total_records = len(employees)
+            batch.save(update_fields=["total_records", "updated_at"])
+
+            if missing_structure_employees:
+                codes = ", ".join(e.employee_code for e in missing_structure_employees)
+                users = User.objects.filter(role__in=[User.ROLE_ADMIN, User.ROLE_MANAGER])
+                Notification.objects.bulk_create([
+                    Notification(
+                        user=user,
+                        title="Salary structure missing",
+                        message=(
+                            f"{client.name} payroll for {month:02d}/{year}: "
+                            f"{len(missing_structure_employees)} employee(s) have no salary "
+                            f"structure set up ({codes}) — their pay will calculate as 0 until "
+                            f"this is fixed."
+                        ),
+                    )
+                    for user in users
+                ])
+
+        serializer = PayrollBatchSerializer(batch, context={"request": request})
+        return Response({"batch": serializer.data, "warnings": []}, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"], url_path="mark-reviewed")
     def mark_reviewed(self, request, pk=None):

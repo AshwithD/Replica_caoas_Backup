@@ -36,7 +36,21 @@ function useQueryLike(fetcher, deps) {
 
   useEffect(() => run(), [run]);
 
-  return { ...state, refetch: run };
+  // Local, non-loading update to the cached data — used for optimistic
+  // merges after a mutation (e.g. an inline cell edit) where a full
+  // `refetch` would flip `isLoading` and make the page collapse into its
+  // skeleton. `setData` replaces the value in place with no loading flash.
+  const setData = useCallback((updater) => {
+    setState((s) => ({
+      ...s,
+      data: typeof updater === "function" ? updater(s.data) : updater,
+      isLoading: false,
+      isError: false,
+      error: null,
+    }));
+  }, []);
+
+  return { ...state, refetch: run, setData };
 }
 
 function unwrap(res) {

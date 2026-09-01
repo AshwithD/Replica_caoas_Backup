@@ -109,11 +109,18 @@ export function Modal({ title, onClose, size = "m", children }) {
       onClick={onClose}
     >
       <div
-        className={`w-full ${width} rounded-2xl p-5`}
-        style={{ background: "var(--modal-panel-bg)", boxShadow: "var(--shadow-xl)" }}
+        className={`w-full ${width} rounded-2xl p-5 flex flex-col`}
+        style={{
+          background: "var(--modal-panel-bg)",
+          boxShadow: "var(--shadow-xl)",
+          // Cap the panel to the viewport so a tall form (e.g. Add Employee)
+          // scrolls inside the modal instead of overflowing under the app's
+          // sticky header (which sits above the modal's z-index).
+          maxHeight: "calc(100vh - 2rem)",
+        }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-4" style={{ flexShrink: 0 }}>
           <h3 className="text-base font-semibold" style={{ color: "var(--text-strong)" }}>
             {title}
           </h3>
@@ -121,7 +128,7 @@ export function Modal({ title, onClose, size = "m", children }) {
             <X size={18} style={{ color: "var(--text-muted)" }} />
           </button>
         </div>
-        {children}
+        <div style={{ overflowY: "auto", minHeight: 0, paddingRight: 4 }}>{children}</div>
       </div>
     </div>
   );

@@ -3,6 +3,7 @@
 from decimal import Decimal
 
 from django.conf import settings
+from django.contrib.auth.hashers import check_password, make_password
 from django.db import models
 
 from .mixins import AuditableMixin
@@ -893,3 +894,16 @@ def get_latest_salary_structure(employee, as_of=None):
         .order_by("-effective_from", "-created_at")
         .first()
     )
+
+
+
+
+# Portal models live in the payroll/portal package (kept inside the
+# payroll module). Imported here so they register under the payroll app.
+from .portal.models import (  # noqa: E402,F401
+    PortalAdjustment,
+    PortalHold,
+    PortalSubmission,
+    PortalSubmissionItem,
+    PortalUser,
+)
