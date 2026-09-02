@@ -30,6 +30,30 @@ const ITEM_TYPES = [
 ];
 const TYPE_LABEL = Object.fromEntries(ITEM_TYPES.map((t) => [t.key, t.label]));
 
+// Short, client-friendly one-liners shown under each "Add a change" tile.
+const TYPE_DESC = {
+  NEW_EMPLOYEE: "Add a new joiner to this month's payroll",
+  REVISION: "Change an employee's salary or CTC",
+  EXIT: "Mark an employee's last working day",
+  SALARY_HOLD: "Hold part of a salary, release it later",
+  ADVANCE: "Give an advance, recovered in instalments",
+  ONE_TIME_EARNING: "Bonus, arrears or an extra payout",
+  ONE_TIME_DEDUCTION: "A one-off recovery or deduction",
+  NOTE: "Leave a message for your payroll team",
+};
+
+// Soft tile colour per item type (icon background).
+const TYPE_COLOR = {
+  NEW_EMPLOYEE: "#eff6ff",
+  REVISION: "#f5f3ff",
+  EXIT: "#fef2f2",
+  SALARY_HOLD: "#fffbeb",
+  ADVANCE: "#ecfdf5",
+  ONE_TIME_EARNING: "#eef7ff",
+  ONE_TIME_DEDUCTION: "#fff4ec",
+  NOTE: "#fffbeb",
+};
+
 // Notes are written via the "Note" button (opens the note modal), not as an
 // item — so exclude NOTE from the item-type buttons (kept in ITEM_TYPES only
 // so previously added NOTE items still render with a proper label).
@@ -49,6 +73,48 @@ const fmtDate = (d) => {
   if (isNaN(dt)) return "";
   return dt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 };
+
+// "1 item" vs "3 items"
+const fmtCount = (n) => {
+  const c = Number(n || 0);
+  return c === 1 ? "1 item" : `${c} items`;
+};
+
+// A single, friendly sentence telling the client what happens next.
+function nextStep(current, pendingCount, appliedCount, failedCount) {
+  if (!current) return "";
+  const reason = current.rejection_reason ? `: ${current.rejection_reason}` : "";
+  switch (current.status) {
+    case "SUBMITTED":
+      return pendingCount > 0
+        ? "Your month is under review, and you've added more since — submit again when ready."
+        : "Your changes are with your payroll team. They'll review and apply them, then the month reopens for more changes.";
+    case "REJECTED":
+      return `Your payroll team returned this month${reason}. Fix the flagged items below and resubmit.`;
+    case "APPROVED":
+      return "This month was approved. You can still add new changes and resubmit.";
+    default: // DRAFT (and the reopened state after an approval)
+      if (pendingCount > 0)
+        return `${fmtCount(pendingCount)} not yet submitted — review the list and tap "Submit for review".`;
+      if (appliedCount > 0)
+        return "Your last changes were approved and applied. Add anything new, or you're all set for this month.";
+      return "No changes recorded yet. Add joiners, revisions or one-time amounts below.";
+  }
+}
+
+const ITEM_STATUS_PILL = {
+  APPLIED: { tone: "green", label: "✓ Applied" },
+  PENDING: { tone: "amber", label: "Pending" },
+  FAILED: { tone: "red", label: "✗ Failed" },
+  SKIPPED: { tone: "slate", label: "Skipped" },
+};
+
+const EVENT_TITLE = {
+  SUBMITTED: "Submitted for review",
+  APPROVED: "Approved and applied",
+  REJECTED: "Returned for changes",
+};
+const EVENT_TONE = { SUBMITTED: "amber", APPROVED: "green", REJECTED: "red" };
 
 function summary(item, employees = []) {
   const p = item.payload || {};
@@ -285,7 +351,7 @@ export default function MonthlyInput() {
   }, []);
 
   // Open the current month straight away — the client can switch months via
-  // the Payroll Month picker if needed.
+  // the month switcher if needed.
   useEffect(() => {
     loadMonth(month, year);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -300,7 +366,7 @@ export default function MonthlyInput() {
       setNotes(sub.notes || "");
       const its = await api.get(`/portal/submissions/${sub.id}/items/`);
       setItems(Array.isArray(its) ? its : []);
-      } catch (e) {
+    } catch (e) {
       setError(e.message);
       setCurrent(null);
     } finally {
@@ -370,7 +436,7 @@ export default function MonthlyInput() {
     try {
       const sub = await api.post(`/portal/submissions/${current.id}/submit/`);
       setCurrent(sub);
-      } catch (e) {
+    } catch (e) {
       setError(e.message);
     } finally {
       setSubmitting(false);
@@ -379,258 +445,224 @@ export default function MonthlyInput() {
 
   const editable = current && ["DRAFT", "REJECTED", "APPROVED"].includes(current.status);
 
-  // History = the month's round log (submitted/approved/rejected events),
-  // newest first — the backend records one event per submit/approve/reject.
+  // ── derived counts ────────────────────────────────────────────────
   const events = current?.history || [];
+  const pendingCount = (items || []).filter((it) => it.status === "PENDING" || it.status === "FAILED").length;
+  const appliedCount = (items || []).filter((it) => it.status === "APPLIED").length;
+  const failedCount = (items || []).filter((it) => it.status === "FAILED").length;
+  const hasUnsent = pendingCount > 0;
 
-  const EVENT_TITLE = {
-    SUBMITTED: "Submitted for review",
-    APPROVED: "Approved and applied",
-    REJECTED: "Returned for changes",
-  };
-  const EVENT_TONE = { SUBMITTED: "amber", APPROVED: "green", REJECTED: "red" };
-
-  // Hero chip counts.
-  const byStatus = {
-    DRAFT: current && current.status === "DRAFT" ? 1 : 0,
-    SUBMITTED: current && current.status === "SUBMITTED" ? 1 : 0,
-    APPROVED: events.filter((e) => e.event_type === "APPROVED").length,
-  };
-
-  // A "Draft in progress" row only when the month is open with un-submitted
-  // changes — submitted/approved/rejected rounds come from the event log.
-  const hasPending = (items || []).some((it) => it.status === "PENDING" || it.status === "FAILED");
-  const showDraftRow = current && current.status === "DRAFT" && hasPending;
+  // Pending / failed changes need attention first — surface them above the
+  // already-applied ones.
+  const rank = (s) => (s === "PENDING" || s === "FAILED" ? 0 : 1);
+  const orderedItems = (items || []).slice().sort((a, b) => rank(a.status) - rank(b.status));
 
   const visibleHistory = showHistory ? events : events.slice(0, 4);
 
   return (
     <div>
-      {/* ── Hero ── */}
-      <div className="hero">
-        <div>
-          <h1 className="page-title">Monthly Payroll Input</h1>
-          <p className="page-sub">Record this month's changes and submit when your payroll team approves.</p>
+      {/* ── Page head ── */}
+      <div className="mi-head">
+        <div className="mi-head-left">
+          <h1 className="page-title">Payroll Input</h1>
+          <p className="page-sub">Record and submit this month's changes — joiners, revisions, exits, holds and one-time amounts.</p>
         </div>
-        <div className="hero-statuses">
-          {["DRAFT", "SUBMITTED", "APPROVED"].map((st) => (
-            <span className="hero-chip" key={st}>
-              <span className={`dot dot-${st.toLowerCase()}`} />
-              {STATUS_LABEL[st]} <b>{byStatus[st]}</b>
-            </span>
-          ))}
+        <div className="mi-head-right">
+          <div className="monthpicker">
+            <button type="button" className="monthpicker-trigger" onClick={() => setPickerOpen((o) => !o)}>
+              <span className="monthpicker-emoji">📅</span>
+              <span className="monthpicker-value">{monthLabel(month, year)}</span>
+              <ChevronDown size={16} className="monthpicker-caret" />
+            </button>
+            {pickerOpen && (
+              <>
+                <div className="monthpicker-backdrop" onClick={() => setPickerOpen(false)} />
+                <div className="monthpicker-pop">
+                  <div className="payroll-scope">
+                    <MonthYearPicker
+                      month={Number(month)}
+                      year={Number(year)}
+                      onChange={(m, y) => {
+                        setMonth(String(m));
+                        setYear(String(y));
+                        setPickerOpen(false);
+                        loadMonth(String(m), String(y));
+                      }}
+                    />
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+          {current && (items || []).length > 0 && (
+            <Button size="sm" variant="secondary" onClick={exportCSV}>⬇ Export CSV</Button>
+          )}
         </div>
       </div>
 
       <ErrorBanner message={error} />
 
-      <div className="mi-grid">
-        {/* ── Left column ── */}
-        <div className="mi-left">
-          <Card className="mb-16">
-            <h3 className="section-title">Payroll Month</h3>
-            <div className="monthpicker">
-              <button
-                type="button"
-                className="monthpicker-trigger"
-                onClick={() => setPickerOpen((o) => !o)}
-              >
-                <span className="monthpicker-emoji">📅</span>
-                <span className="monthpicker-value">{monthLabel(month, year)}</span>
-                <ChevronDown size={16} className="monthpicker-caret" />
-              </button>
+      {/* ── Status strip — one clear sentence on where this month stands ── */}
+      {current && (
+        <div className={`status-strip strip-${current.status}`}>
+          <span className="status-strip-pill">{STATUS_LABEL[current.status] || current.status}</span>
+          <span className="status-strip-blurb">
+            {nextStep(current, pendingCount, appliedCount, failedCount)}
+          </span>
+        </div>
+      )}
 
-              {pickerOpen && (
+      {loading && (
+        <div className="center" style={{ padding: 48 }}><Spinner /></div>
+      )}
+
+      {!current && !loading && (
+        <Card>
+          <EmptyState
+            title="Pick a month to begin"
+            hint="Choose the payroll month and year, and the month opens here."
+          />
+        </Card>
+      )}
+
+      {current && !loading && (
+        <div className="mi-grid">
+          {/* ── Left column — the month's changes ── */}
+          <div className="mi-left">
+            <Card>
+              <div className="card-head">
+                <div>
+                  <h3 className="section-title" style={{ margin: 0 }}>Changes</h3>
+                  <p className="card-head-sub">
+                    {fmtCount(items ? items.length : 0)} total
+                    {pendingCount > 0 ? ` · ${fmtCount(pendingCount)} pending` : ""}
+                    {appliedCount > 0 ? ` · ${fmtCount(appliedCount)} applied` : ""}
+                  </p>
+                </div>
+              </div>
+
+              {(!items || items.length === 0) ? (
+                <div className="empty-box">No changes yet — add your first one below.</div>
+              ) : (
+                <div className="item-list">
+                  {orderedItems.map((it) => {
+                    const meta = ITEM_TYPES.find((t) => t.key === it.item_type);
+                    const pill = ITEM_STATUS_PILL[it.status] || { tone: "slate", label: it.status };
+                    return (
+                      <div className={`item-card item-${it.status.toLowerCase()}`} key={it.id}>
+                        <div className="item-icon" style={{ background: TYPE_COLOR[it.item_type] || "#f1f5f9" }}>
+                          {meta ? meta.icon : "📄"}
+                        </div>
+                        <div className="item-main">
+                          <div className="item-title-row">
+                            <span className="item-title">{TYPE_LABEL[it.item_type] || it.item_type}</span>
+                            <Badge tone={pill.tone}>{pill.label}</Badge>
+                          </div>
+                          <div className="item-sub">{summary(it, employees)}</div>
+                          {it.error && (
+                            <div className="item-error">
+                              ⚠ {it.error}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {notes && notes.trim() && (
+                <div className="note-line" onClick={() => setNoteOpen(true)}>
+                  <span className="note-line-icon">📝</span>
+                  <span className="note-line-text">{notes.trim()}</span>
+                  <span className="link-btn">Edit</span>
+                </div>
+              )}
+
+              {editable && (
                 <>
-                  <div className="monthpicker-backdrop" onClick={() => setPickerOpen(false)} />
-                  <div className="monthpicker-pop">
-                    <div className="payroll-scope">
-                      <MonthYearPicker
-                        month={Number(month)}
-                        year={Number(year)}
-                        onChange={(m, y) => {
-                          setMonth(String(m));
-                          setYear(String(y));
-                          setPickerOpen(false);
-                          loadMonth(String(m), String(y));
-                        }}
-                      />
-                    </div>
+                  <h4 className="items-title">Add a change</h4>
+                  <div className="type-grid">
+                    {ADDABLE_TYPES.map((t) => (
+                      <button key={t.key} type="button" className="type-tile" onClick={() => setAddingType(t.key)}>
+                        <span className="type-tile-icon">{t.icon}</span>
+                        <span className="type-tile-label">{t.label}</span>
+                        <span className="type-tile-desc">{TYPE_DESC[t.key]}</span>
+                      </button>
+                    ))}
+                    <button type="button" className="type-tile" onClick={() => setNoteOpen(true)}>
+                      <span className="type-tile-icon">📝</span>
+                      <span className="type-tile-label">Note</span>
+                      <span className="type-tile-desc">{TYPE_DESC.NOTE}</span>
+                    </button>
                   </div>
                 </>
               )}
-            </div>
-          </Card>
 
-          <Card>
-            <div className="row between">
-              <h3 className="section-title" style={{ margin: 0 }}>Month Overview</h3>
-              <div className="overview-actions">
-                {current && (
-                  <div className="chips">
-                    <span className={`chip chip-status-${current.status}`}>
-                      {STATUS_LABEL[current.status] || current.status}
-                    </span>
-                    <span className="chip">{items ? items.length : 0} items</span>
+              {editable && hasUnsent && (
+                <div className="submit-bar">
+                  <div className="submit-bar-copy">
+                    <div className="submit-bar-title">Ready to send?</div>
+                    <div className="submit-bar-sub">
+                      {fmtCount(pendingCount)} will go to your payroll team for review and approval.
+                    </div>
                   </div>
-                )}
-                {current && (items || []).length > 0 && (
-                  <Button size="sm" variant="secondary" onClick={exportCSV}>
-                    ⬇ Export
+                  <Button onClick={submitMonth} disabled={submitting}>
+                    {submitting ? "Submitting…" : "Submit for Review"}
                   </Button>
+                </div>
+              )}
+            </Card>
+          </div>
+
+          {/* ── Right column — round history ── */}
+          <div className="mi-right">
+            <Card>
+              <div className="card-head">
+                <h3 className="section-title" style={{ margin: 0 }}>History</h3>
+                {events.length > 4 && (
+                  <button className="link-btn" onClick={() => setShowHistory((v) => !v)}>
+                    {showHistory ? "Show less" : "View all"}
+                  </button>
                 )}
               </div>
-            </div>
 
-            {loading && (
-              <div className="center" style={{ padding: 32 }}><Spinner /></div>
-            )}
-
-            {!current && !loading && (
-              <EmptyState
-                title="Pick a month to begin"
-                hint="Choose the payroll month and year, and the month opens here."
-              />
-            )}
-
-            {current && !loading && (
-              <>
-                {current.status === "SUBMITTED" && (
-                  <div className="overview-banner pending">
-                    Changes pending — you can continue adding items and resubmit for this month.
-                  </div>
-                )}
-                {current.status === "APPROVED" && (
-                  <div className="overview-banner approved">
-                    Latest changes approved and applied{current.approved_at ? ` on ${fmtDate(current.approved_at)}` : ""}.
-                    You can add new changes and resubmit for the same month.
-                  </div>
-                )}
-                {current.status === "REJECTED" && (
-                  <div className="overview-banner rejected">
-                    Returned by payroll team{current.rejection_reason ? `: ${current.rejection_reason}` : ""}.
-                    Fix the items below and resubmit.
-                  </div>
-                )}
-
-                <h4 className="items-title">
-                  Changes ({items ? items.length : 0})
-                  <span className="items-title-sub"> — {monthLabel(current.month, current.year)}</span>
-                </h4>
-
-                <div className="grid" style={{ gap: 10 }}>
-                  {(items || []).map((it) => (
-                    <div className="item-row" key={it.id}>
-                      <div className="item-main">
-                        <div className="row">
-                          <span className="item-title">
-                            {(ITEM_TYPES.find((t) => t.key === it.item_type)?.icon || "") + " "}
-                            {TYPE_LABEL[it.item_type] || it.item_type}
-                          </span>
-                          <Badge tone={it.status === "APPLIED" ? "green" : it.status === "FAILED" ? "red" : "slate"}>
-                            {it.status}
-                          </Badge>
-                        </div>
-                        <div className="item-sub">{summary(it, employees)}</div>
-                        {it.error && <div className="small" style={{ color: "var(--red)", marginTop: 4 }}>{it.error}</div>}
+              {!hasUnsent && events.length === 0 ? (
+                <p className="small muted" style={{ margin: "8px 0 4px" }}>
+                  No activity yet for this month.
+                </p>
+              ) : (
+                <div className="tl">
+                  {editable && hasUnsent && (
+                    <div className="tl-item tl-draft">
+                      <div className="tl-row">
+                        <span className="tl-title">Draft in progress</span>
+                        <Badge tone="slate">Pending</Badge>
                       </div>
+                      <div className="tl-meta">{fmtCount(pendingCount)} not yet submitted</div>
+                    </div>
+                  )}
+                  {visibleHistory.map((ev) => (
+                    <div className={`tl-item tl-${ev.event_type.toLowerCase()}`} key={ev.id}>
+                      <div className="tl-row">
+                        <span className="tl-title">{EVENT_TITLE[ev.event_type] || ev.event_type}</span>
+                        <Badge tone={EVENT_TONE[ev.event_type] || "slate"}>{ev.event_type}</Badge>
+                      </div>
+                      <div className="tl-meta">
+                        {fmtCount(ev.item_count)} · {fmtDate(ev.created_at)}
+                        {ev.event_type === "APPROVED" && ev.actor ? ` · by ${ev.actor}` : ""}
+                      </div>
+                      {ev.event_type === "REJECTED" && ev.note && (
+                        <div className="tl-note">"{ev.note}"</div>
+                      )}
                     </div>
                   ))}
-                  {(!items || items.length === 0) && (
-                    <div className="empty-box">No changes yet — add one below.</div>
-                  )}
                 </div>
-
-                {notes && notes.trim() && (
-                  <div className="note-line" onClick={() => setNoteOpen(true)}>
-                    <span className="note-line-icon">📝</span>
-                    <span className="note-line-text">{notes.trim()}</span>
-                    <span className="link-btn">Edit</span>
-                  </div>
-                )}
-
-                {editable && (
-                  <>
-                    <h4 className="items-title mt-16">Add Change</h4>
-                    <p className="addchange-hint">Choose the type of change you want to add.</p>
-                    <div className="type-grid">
-                      {ADDABLE_TYPES.map((t) => (
-                        <button
-                          key={t.key}
-                          type="button"
-                          className="type-btn"
-                          onClick={() => setAddingType(t.key)}
-                        >
-                          <span>{t.icon}</span>
-                          {t.label}
-                        </button>
-                      ))}
-                      <button
-                        type="button"
-                        className="type-btn"
-                        onClick={() => setNoteOpen(true)}
-                      >
-                        <span>📝</span>
-                        Note
-                      </button>
-                    </div>
-                  </>
-                )}
-
-                {editable && (items || []).length > 0 && (
-                  <div className="row mt-16" style={{ justifyContent: "flex-end" }}>
-                    <Button onClick={submitMonth} disabled={submitting}>
-                      {submitting ? "Submitting…" : "Submit for Review"}
-                    </Button>
-                  </div>
-                )}
-              </>
-            )}
-          </Card>
-        </div>
-
-        {/* ── Right column ── */}
-        <div className="mi-right">
-          <Card className="mb-16">
-            <div className="row between">
-              <h3 className="section-title" style={{ margin: 0 }}>History</h3>
-              {events.length > 4 && (
-                <button className="link-btn" onClick={() => setShowHistory((v) => !v)}>
-                  {showHistory ? "Show less" : "View All History"}
-                </button>
               )}
-            </div>
-            {!showDraftRow && events.length === 0 ? (
-              <p className="small muted" style={{ margin: "12px 0 4px" }}>No rounds for this month yet.</p>
-            ) : (
-              <div className="tl">
-                {showDraftRow && (
-                  <div className="tl-item">
-                    <div className="row between">
-                      <span className="tl-title">Draft in progress</span>
-                      <Badge tone="slate">Draft</Badge>
-                    </div>
-                    <div className="tl-meta">{items ? items.length : 0} items · changes not yet submitted</div>
-                  </div>
-                )}
-                {visibleHistory.map((ev) => (
-                  <div className="tl-item" key={ev.id}>
-                    <div className="row between">
-                      <span className="tl-title">{EVENT_TITLE[ev.event_type] || ev.event_type}</span>
-                      <Badge tone={EVENT_TONE[ev.event_type] || "slate"}>{ev.event_type}</Badge>
-                    </div>
-                    <div className="tl-meta">
-                      {ev.item_count ?? 0} items · {fmtDate(ev.created_at)}
-                      {ev.event_type === "APPROVED" && ev.actor ? ` · by ${ev.actor}` : ""}
-                      {ev.event_type === "REJECTED" && ev.note ? ` · ${ev.note}` : ""}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Card>
+            </Card>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ── Note modal ── */}
       {noteOpen && (

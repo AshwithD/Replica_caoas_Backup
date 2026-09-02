@@ -61,10 +61,18 @@ class PortalSubmissionSubmitView(PortalScopeBase, APIView):
                 "status", "rejection_reason", "submitted_by", "submitted_at", "updated_at",
             ]
         )
+        # Count only the items being submitted THIS round (everything not yet
+        # applied) — matching what the approver's summary will report, so the
+        # "Submitted for review" and "Approved and applied" entries for a round
+        # always agree. Using items.count() would include items already applied
+        # in earlier rounds and made the approved count look like it "fell back".
+        pending_count = submission.items.exclude(
+            status=PortalSubmissionItem.STATUS_APPLIED
+        ).count()
         record_event(
             submission,
             PortalSubmissionEvent.TYPE_SUBMITTED,
-            item_count=submission.items.count(),
+            item_count=pending_count,
             actor_portal=request.user,
         )
         return Response(PortalSubmissionSerializer(submission).data)

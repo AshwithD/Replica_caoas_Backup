@@ -469,3 +469,114 @@
   text-overflow: ellipsis; white-space: nowrap;
 }
 #client-portal .note-line .link-btn { flex-shrink: 0; color: #1d4ed8; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   v5 — client-first Monthly Input layout (status strip, change cards,
+   add-change tiles, submit bar, tone-coloured timeline)
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* ── page head ──────────────────────────────────────────────────────── */
+#client-portal .mi-head {
+  display: flex; align-items: flex-end; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap; margin-bottom: 14px;
+}
+#client-portal .mi-head .page-title { margin: 0 0 4px; }
+#client-portal .mi-head .page-sub { margin: 0; max-width: 560px; }
+#client-portal .mi-head-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+#client-portal .mi-head-right .monthpicker { min-width: 210px; }
+#client-portal .mi-head-right .monthpicker-trigger { padding: 9px 12px; font-size: 13.5px; border-radius: 10px; }
+
+/* ── status strip ───────────────────────────────────────────────────── */
+#client-portal .status-strip {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  border-radius: 12px; padding: 12px 16px; margin-bottom: 16px;
+  font-size: 13.5px; line-height: 1.5;
+  border: 1px solid transparent;
+}
+#client-portal .status-strip-pill {
+  font-size: 12px; font-weight: 700; letter-spacing: 0.2px;
+  padding: 4px 11px; border-radius: 999px; white-space: nowrap;
+}
+#client-portal .status-strip-blurb { color: var(--ink-2); }
+#client-portal .strip-DRAFT { background: var(--slate-bg); border-color: var(--line); }
+#client-portal .strip-DRAFT .status-strip-pill { background: #e2e8f0; color: var(--ink-2); }
+#client-portal .strip-SUBMITTED { background: var(--amber-bg); border-color: #fde68a; }
+#client-portal .strip-SUBMITTED .status-strip-pill { background: #fef3c7; color: #92400e; }
+#client-portal .strip-APPROVED { background: var(--green-bg); border-color: #a7f3d0; }
+#client-portal .strip-APPROVED .status-strip-pill { background: #d1fae5; color: #047857; }
+#client-portal .strip-REJECTED { background: var(--red-bg); border-color: #fecaca; }
+#client-portal .strip-REJECTED .status-strip-pill { background: #fee2e2; color: #b91c1c; }
+
+/* ── card header ────────────────────────────────────────────────────── */
+#client-portal .card-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 10px; margin-bottom: 14px;
+}
+#client-portal .card-head-sub { font-size: 12px; color: var(--muted); margin: 2px 0 0; }
+
+/* ── change list ────────────────────────────────────────────────────── */
+#client-portal .item-list { display: flex; flex-direction: column; gap: 8px; }
+#client-portal .item-card {
+  display: flex; align-items: flex-start; gap: 12px;
+  border: 1px solid var(--line); border-radius: 12px;
+  padding: 11px 13px; background: #fff;
+  border-left-width: 3px;
+}
+#client-portal .item-card.item-applied { border-left-color: #10b981; }
+#client-portal .item-card.item-pending { border-left-color: #f59e0b; }
+#client-portal .item-card.item-failed { border-left-color: #ef4444; background: #fffafa; }
+#client-portal .item-card.item-skipped { border-left-color: #cbd5e1; }
+#client-portal .item-icon {
+  width: 38px; height: 38px; border-radius: 10px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+}
+#client-portal .item-title-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+#client-portal .item-error {
+  margin-top: 6px; font-size: 12px; color: var(--red);
+  background: var(--red-bg); border-radius: 8px; padding: 6px 9px;
+  line-height: 1.45;
+}
+
+/* ── add-change tiles ───────────────────────────────────────────────── */
+#client-portal .type-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+#client-portal .type-tile {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 5px;
+  text-align: left;
+  border: 1px solid var(--line); background: #fff; border-radius: 12px;
+  padding: 13px 14px; cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease, box-shadow 0.12s ease;
+}
+#client-portal .type-tile:hover {
+  border-color: var(--accent); background: var(--blue-bg);
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.08);
+}
+#client-portal .type-tile-icon { font-size: 20px; line-height: 1; }
+#client-portal .type-tile-label { font-size: 13px; font-weight: 700; color: var(--ink); }
+#client-portal .type-tile-desc { font-size: 11.5px; color: var(--muted); line-height: 1.4; }
+
+/* ── submit bar ─────────────────────────────────────────────────────── */
+#client-portal .submit-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 14px; flex-wrap: wrap;
+  margin-top: 18px; padding: 14px 16px;
+  background: var(--blue-bg); border: 1px solid #bfdbfe; border-radius: 12px;
+}
+#client-portal .submit-bar-title { font-size: 13.5px; font-weight: 700; color: var(--ink); }
+#client-portal .submit-bar-sub { font-size: 12.5px; color: var(--ink-2); margin-top: 2px; }
+
+/* ── timeline tone colours ──────────────────────────────────────────── */
+#client-portal .tl-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+#client-portal .tl-item::before { border-color: #cbd5e1; }
+#client-portal .tl-item.tl-draft::before { border-color: #94a3b8; background: #f1f5f9; }
+#client-portal .tl-item.tl-submitted::before { border-color: #f59e0b; background: #fffbeb; }
+#client-portal .tl-item.tl-approved::before { border-color: #10b981; background: #ecfdf5; }
+#client-portal .tl-item.tl-rejected::before { border-color: #ef4444; background: #fef2f2; }
+#client-portal .tl-note {
+  margin-top: 5px; font-size: 12px; color: #b91c1c;
+  background: var(--red-bg); border-radius: 8px; padding: 6px 9px; line-height: 1.45;
+}
