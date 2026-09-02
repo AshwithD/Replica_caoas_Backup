@@ -23,8 +23,10 @@ class ClientProfile(models.Model):
                                  back to `client.email`
       * pdf_design             → which payslip layout (1-8) to render
       * pf_establishment_code  → PF establishment code for payslips
-      * payroll_is_active      → payroll-service on/off toggle. The master
-                                 `client.is_active` acts as a hard kill-switch.
+      * payroll_is_active      → payroll-service on/off toggle, OFF until
+                                 someone switches it on in Firm Details. The
+                                 master `client.is_active` acts as a hard
+                                 kill-switch on top of it.
 
     The existence of a profile row IS payroll enrollment: a client in the
     master list without a ClientProfile row is not a payroll client.
@@ -40,7 +42,10 @@ class ClientProfile(models.Model):
     payroll_email = models.EmailField(blank=True)
     pdf_design = models.PositiveSmallIntegerField(choices=PDF_DESIGN_CHOICES, default=1)
     pf_establishment_code = models.CharField(max_length=40, blank=True)
-    payroll_is_active = models.BooleanField(default=True)
+    # OFF by default: enrolling a client in payroll is a deliberate act done
+    # in Firm Details, not something a client inherits by existing in the
+    # Client module. (Changing this default needs a migration — 0013.)
+    payroll_is_active = models.BooleanField(default=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

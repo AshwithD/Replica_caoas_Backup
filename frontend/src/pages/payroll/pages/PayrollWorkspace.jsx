@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
-  Building2, Plus, Layers, Clock3, CheckCircle2,
+  Building2, Layers, Clock3, CheckCircle2,
   AlertTriangle, Loader2, ArrowUpRight, FileSpreadsheet,
   LayoutGrid, List, ShieldCheck, Inbox, Bell,
 } from "lucide-react";
@@ -15,7 +15,6 @@ import EmptyState from "../_kit/components/EmptyState";
 import { useSmartBack } from "../_kit/utils/utils";
 import BatchList from "./BatchList";
 import EmailLogBatches from "./EmailLogBatches";
-import { ClientFormModal } from "./FirmDetails";
 
 /* ── "someone submitted something" signal ─────────────────────────────────
    The dashboard shouldn't need a click to reveal that a client sent their
@@ -172,7 +171,6 @@ export default function PayrollWorkspace() {
   // of remounting the Workspace fresh at "overview".
   const [searchParams] = useSearchParams();
   const view = searchParams.get("view") || "overview";
-  const [showAddClient, setShowAddClient] = useState(false);
   const [clientView, setClientView] = useState("grid"); // "grid" | "list"
   const navigate = useNavigate();
   const smartBack = useSmartBack("/payroll");
@@ -381,7 +379,9 @@ export default function PayrollWorkspace() {
                     </button>
                   </div>
                 )}
-                {clients.length > 0 && (
+                {/* Always available — even with no active clients, this is the
+                    way through to Firm Details to switch payroll on for one. */}
+                {(
                   <button
                     onClick={() => navigate("/payroll/firm-details")}
                     className="flex items-center gap-1 text-xs font-medium transition-opacity hover:opacity-80"
@@ -401,12 +401,10 @@ export default function PayrollWorkspace() {
               <ErrorState message="Failed to load clients." onRetry={clientsQuery.refetch} />
             ) : clients.length === 0 ? (
               <Card className="p-6">
-                <EmptyState emoji="🏢" message="No clients yet — add your first client to start running payroll." />
-                <div className="flex justify-center">
-                  <Button onClick={() => setShowAddClient(true)}>
-                    <Plus size={16} /> Add Client
-                  </Button>
-                </div>
+                <EmptyState
+                  emoji="🏢"
+                  message="No clients running payroll yet — open Manage all to switch payroll on for a client."
+                />
               </Card>
             ) : clientView === "grid" ? (
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -479,19 +477,6 @@ export default function PayrollWorkspace() {
            batch navigates to /payroll/email-logs/:batchId for the
            detailed per-batch log (EmailLogs.jsx). */
         <EmailLogBatches onBack={backToOverview} />
-      )}
-
-      {/* Quick-add modals — same forms used from the Clients/Employees
-          pages, surfaced here too so adding a client or employee doesn't
-          require leaving the overview screen. */}
-      {showAddClient && (
-        <ClientFormModal
-          onClose={() => setShowAddClient(false)}
-          onSaved={() => {
-            setShowAddClient(false);
-            clientsQuery.refetch();
-          }}
-        />
       )}
 
     </div>

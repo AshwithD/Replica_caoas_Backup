@@ -430,7 +430,9 @@ class ClientSerializer(serializers.ModelSerializer):
     # ── Payroll-only (ClientProfile), via the reverse OneToOne ──
     logo = serializers.ImageField(source="payroll_profile.payroll_logo", required=False, allow_null=True)
     payroll_email = serializers.EmailField(source="payroll_profile.payroll_email", required=False, allow_null=True, allow_blank=True)
-    is_active = serializers.BooleanField(source="payroll_profile.payroll_is_active", required=False, default=True)
+    # default=False so a create that omits is_active enrolls the client as
+    # INACTIVE — payroll is switched on explicitly in Firm Details.
+    is_active = serializers.BooleanField(source="payroll_profile.payroll_is_active", required=False, default=False)
     pdf_design = serializers.IntegerField(source="payroll_profile.pdf_design", required=False, default=1)
     pf_establishment_code = serializers.CharField(source="payroll_profile.pf_establishment_code", required=False, allow_null=True, allow_blank=True, default="")
 
@@ -469,7 +471,11 @@ class ClientSerializer(serializers.ModelSerializer):
         field defaults run — so fill the sane defaults here instead."""
         data = super().to_representation(instance)
         if data.get("is_active") is None:
-            data["is_active"] = True
+            # No ClientProfile row = never enrolled in payroll, so report it
+            # as INACTIVE. (This is what used to make every client in the
+            # Client module show up as an active payroll client on a fresh
+            # deploy.) Switch it on per client in Firm Details.
+            data["is_active"] = False
         if data.get("pdf_design") is None:
             data["pdf_design"] = 1
         if data.get("payroll_email") is None:

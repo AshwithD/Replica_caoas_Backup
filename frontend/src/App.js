@@ -136,7 +136,7 @@ function App() {
                     {/* Payroll */}
                     <Route path="/payroll/*" element={
                       <Suspense fallback={<PageLoader />}>
-                        <PrivateRoute allowedRoles={['Admin','HR','Founder']}>
+                        <PrivateRoute allowedRoles={['Admin','Manager','HR','Founder','Team Lead','Employee','Intern']}>
                           <PayrollRoutes />
                         </PrivateRoute>
                       </Suspense>

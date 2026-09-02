@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Building2, Mail, Phone, FileText, Pencil, Palette } from "lucide-react";
+import { Building2, Mail, Phone, FileText, Pencil, Palette, Search } from "lucide-react";
 import { Badge, Button, Card, ErrorState, Input, Modal, Skeleton, Textarea } from "../_kit/components/primitives";
 import { useClients, useAppMutations } from "../_kit/hooks/hooks";
 import PageHero from "../_kit/components/PageHero";
@@ -231,6 +231,17 @@ export default function FirmDetails() {
   const { mutateSaveClient } = useAppMutations();
   const list = Array.isArray(clients) ? clients : clients?.results || [];
   const [modalClient, setModalClient] = useState(undefined); // undefined = closed, null = "add new"
+  const [query, setQuery] = useState("");
+
+  // Search only — the list keeps whatever order the API returns it in.
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter((c) =>
+      ["name", "email", "payroll_email", "phone", "pan", "tan", "gstin"]
+        .some((k) => String(c[k] || "").toLowerCase().includes(q))
+    );
+  }, [list, query]);
 
   const toggleClientStatus = async (client) => {
     const nextActive = client.is_active === false ? true : false;
@@ -264,22 +275,38 @@ export default function FirmDetails() {
       <PageHero
         eyebrow="Payroll"
         title="Clients"
-        subtitle="The CA firm's payroll-service clients — each one runs its own monthly payroll and employee master."
-        action={
-          <Button onClick={() => setModalClient(null)}>
-            <Plus size={16} />
-            Add Client
-          </Button>
-        }
+        subtitle="The CA firm's payroll-service clients — each one runs its own monthly payroll and employee master. Clients are added in the Client module; switch payroll on for one here."
       />
+
+      {/* ── search ─────────────────────────────────────────────────────── */}
+      {list.length > 0 && (
+        <div className="flex justify-end">
+          <div className="relative w-full" style={{ maxWidth: 320 }}>
+            <Search
+              size={14}
+              style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--text-subtle)" }}
+            />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search name, email, phone, PAN, GSTIN…"
+              style={{ paddingLeft: 30 }}
+            />
+          </div>
+        </div>
+      )}
 
       {list.length === 0 ? (
         <Card className="p-5">
-          <EmptyState emoji="🏢" message="No clients added yet. Click “Add Client” to onboard the first one." />
+          <EmptyState emoji="🏢" message="No clients yet. Add one in the Client module — it will appear here, ready to switch payroll on." />
+        </Card>
+      ) : visible.length === 0 ? (
+        <Card className="p-5">
+          <EmptyState emoji="🔍" message={`No client matches “${query}”.`} />
         </Card>
       ) : (
         <div className="space-y-3">
-          {list.map((client) => (
+          {visible.map((client) => (
             <ClientCard
               key={client.id}
               client={client}
