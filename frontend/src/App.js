@@ -83,7 +83,7 @@ function App() {
               <Route path="/client-onboarding" element={<Suspense fallback={<PageLoader />}><ClientOnboardingForm /></Suspense>} />
 
               {/* ── Client Portal (public; payroll PortalUser credentials) ── */}
-              <Route path="/portal/*" element={
+              <Route path="/payroll-portal/*" element={
                 <Suspense fallback={<PageLoader />}><ClientPortal /></Suspense>
               } />
 
