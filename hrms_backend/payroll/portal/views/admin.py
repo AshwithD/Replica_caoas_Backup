@@ -11,13 +11,13 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from ..models import PortalSubmission, PortalUser
+from ..models import PortalSubmission, PortalSubmissionEvent, PortalUser
 from ..serializers import (
     PortalSubmissionItemSerializer,
     PortalSubmissionSerializer,
     PortalUserAdminSerializer,
 )
-from ..services import apply_item, apply_submission
+from ..services import apply_item, apply_submission, record_event, refresh_batch_after_apply
 
 
 class PortalUserAdminViewSet(viewsets.ModelViewSet):
@@ -38,7 +38,7 @@ class PortalSubmissionAdminViewSet(viewsets.ReadOnlyModelViewSet):
 
     queryset = (
         PortalSubmission.objects.select_related("client", "submitted_by", "approved_by")
-        .prefetch_related("items")
+        .prefetch_related("items", "history")
         .order_by("-year", "-month")
     )
     serializer_class = PortalSubmissionSerializer
@@ -68,6 +68,17 @@ class PortalSubmissionAdminViewSet(viewsets.ReadOnlyModelViewSet):
         submission.approved_by = request.user
         submission.approved_at = timezone.now()
         submission.save(update_fields=["approved_by", "approved_at", "updated_at"])
+        if applied:
+            record_event(
+                submission,
+                PortalSubmissionEvent.TYPE_APPROVED,
+                item_count=1,
+                actor_staff=request.user,
+            )
+            # Push the change straight into the month's batch if it already
+            # exists (the staff member IS the approver here — no later
+            # submit/approve round-trip will re-apply it).
+            refresh_batch_after_apply(submission, request.user, [item])
         return Response(
             {
                 "item": PortalSubmissionItemSerializer(item).data,
@@ -105,4 +116,11 @@ class PortalSubmissionAdminViewSet(viewsets.ReadOnlyModelViewSet):
         submission.status = PortalSubmission.STATUS_REJECTED
         submission.rejection_reason = (request.data.get("reason") or "").strip()
         submission.save(update_fields=["status", "rejection_reason", "updated_at"])
+        record_event(
+            submission,
+            PortalSubmissionEvent.TYPE_REJECTED,
+            item_count=submission.items.count(),
+            actor_staff=request.user,
+            note=submission.rejection_reason,
+        )
         return Response(PortalSubmissionSerializer(submission).data)

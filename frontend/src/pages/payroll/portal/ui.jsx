@@ -56,6 +56,28 @@ export function Spinner() {
   return <div className="spinner" aria-label="Loading" />;
 }
 
+export function Modal({ title, onClose, footer, children }) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div
+        className="modal-panel"
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="modal-head">
+          <h3 className="modal-title">{title}</h3>
+          <button type="button" className="modal-close" onClick={onClose} aria-label="Close">
+            ✕
+          </button>
+        </div>
+        <div className="modal-body">{children}</div>
+        {footer && <div className="modal-footer">{footer}</div>}
+      </div>
+    </div>
+  );
+}
+
 export function ErrorBanner({ message }) {
   if (!message) return null;
   return <div className="error-banner">{message}</div>;

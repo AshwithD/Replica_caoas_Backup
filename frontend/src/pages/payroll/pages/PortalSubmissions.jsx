@@ -70,11 +70,21 @@ const unwrapList = (d) => {
 };
 const fmt = (n) => new Intl.NumberFormat("en-IN").format(Number(n || 0));
 
-function payloadSummary(item) {
+function payloadSummary(item, employees = []) {
   const p = item.payload || {};
   const bits = [];
   if (p.employee_code) bits.push(p.employee_code);
   if (p.first_name) bits.push([p.first_name, p.last_name].filter(Boolean).join(" "));
+  if (p.employee_id) {
+    // Resolve the employee so staff can see at a glance WHO a change is for.
+    const emp = employees.find((e) => String(e.id) === String(p.employee_id));
+    if (emp) {
+      const name = [emp.first_name, emp.last_name].filter(Boolean).join(" ").trim();
+      bits.push(name ? `${emp.employee_code} — ${name}` : emp.employee_code || `Employee #${p.employee_id}`);
+    } else {
+      bits.push(`Employee #${p.employee_id}`);
+    }
+  }
   if (p.ctc_annual) bits.push(`CTC ₹${fmt(p.ctc_annual)}`);
   if (p.effective_from) bits.push(`from ${p.effective_from}`);
   if (p.last_working_date) bits.push(`LWD ${p.last_working_date}`);
@@ -348,7 +358,7 @@ function SubmissionDetail({ submission, onClose, onChanged, onProceeded }) {
                         <Badge tone={ITEM_TONES[it.status] || "slate"}>{it.status}</Badge>
                       </div>
                       <p className="text-xs mt-0.5" style={{ color: isNote ? "var(--text-primary)" : "var(--text-secondary)", whiteSpace: "pre-wrap" }}>
-                        {payloadSummary(it)}
+                        {payloadSummary(it, employees)}
                       </p>
                       {it.error && <p className="text-xs mt-0.5" style={{ color: "var(--red-text)" }}>{it.error}</p>}
                     </div>

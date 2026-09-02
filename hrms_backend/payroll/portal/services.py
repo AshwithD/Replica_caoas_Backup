@@ -21,25 +21,49 @@ SUBMITTED so the admin can fix and re-approve (re-approval retries PENDING
 and FAILED items and skips APPLIED ones).
 """
 
+import calendar
 from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
+from payroll.calculations import calculate_payslip_fields, is_in_probation
 from payroll.models import (
     Employee,
     EmployeeSalaryStructure,
     OnHoldAdjustment,
+    PayrollBatch,
+    PayslipRecord,
     SalaryAdvance,
     SalaryAdvanceAdjustment,
+    get_latest_salary_structure,
 )
 
-from .models import PortalAdjustment, PortalHold, PortalSubmission, PortalSubmissionItem
+from .models import (
+    PortalAdjustment,
+    PortalHold,
+    PortalSubmission,
+    PortalSubmissionEvent,
+    PortalSubmissionItem,
+)
 from .validators import parse_date, to_decimal, to_positive_int
 
 # Structure fields the portal may set explicitly on top of build_from_ctc.
 _STRUCTURE_OVERRIDES = ("nps_allowance", "fbp", "vpf")
+
+
+def record_event(submission, event_type, item_count=0, actor_portal=None, actor_staff=None, note=""):
+    """Appends one row to the submission's round history."""
+    return PortalSubmissionEvent.objects.create(
+        submission=submission,
+        event_type=event_type,
+        item_count=item_count,
+        actor_portal=actor_portal,
+        actor_staff=actor_staff,
+        note=(note or "")[:1000],
+    )
 
 
 def _first_of_month(submission) -> date:
@@ -342,10 +366,12 @@ def apply_submission(submission, approved_by):
         "sort", "id"
     )
 
+    applied_items = []
     with transaction.atomic():
         for item in items:
             if apply_item(item, approved_by):
                 summary["applied"] += 1
+                applied_items.append(item)
             elif item.status == PortalSubmissionItem.STATUS_SKIPPED:
                 summary["skipped"] += 1
             else:
@@ -364,4 +390,258 @@ def apply_submission(submission, approved_by):
             ]
         )
 
+        # Record the round so the client's History still shows "Approved and
+        # applied" after the month reopens as DRAFT (the submission row's own
+        # status can't hold that).
+        record_event(
+            submission,
+            PortalSubmissionEvent.TYPE_APPROVED,
+            item_count=summary["applied"],
+            actor_staff=approved_by,
+        )
+
+        # If this month's payroll batch was already generated (an earlier
+        # round), fold the just-applied changes straight into its payslip
+        # records — otherwise a second round's money would be marked
+        # APPLIED in the portal yet never show up on the payslips.
+        if applied_items:
+            refresh_batch_after_apply(submission, approved_by, applied_items)
+
     return summary
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Batch sync — fold later-round portal changes into an already-generated batch
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _synthetic_row(days_in_month: int) -> dict:
+    """The full-attendance, zero-extra row a portal-generated record starts
+    from — mirrors the row PayrollUploadView.generate_from_portal builds."""
+    return {
+        "actual_working_days": days_in_month,
+        "extra_working_days": Decimal("0"),
+        "paid_leave_days": Decimal("0"),
+        "lop_days": Decimal("0"),
+        "lta": Decimal("0"),
+        "special_allowance": Decimal("0"),
+        "nps_allowance_earned": Decimal("0"),
+        "commission_other": Decimal("0"),
+        "arrears": Decimal("0"),
+        "reimbursements": Decimal("0"),
+        "tds": Decimal("0"),
+        "vpf_arrears": Decimal("0"),
+        "nps_deduction_arrears": Decimal("0"),
+        "loan_deduction": Decimal("0"),
+        "lwf": Decimal("0"),
+        "other_deduction": Decimal("0"),
+    }
+
+
+def _attendance_row_for(record) -> dict:
+    """Rebuild the raw `row` dict used to (re)compute a record — same shape
+    the Batch Review attendance-edit path passes to calculate_payslip_fields,
+    so a revision recompute can't double-count the structure baseline."""
+    return {
+        "actual_working_days": record.actual_working_days,
+        "lop_days": record.lop_days,
+        "extra_working_days": record.extra_working_days,
+        "paid_leave_days": record.paid_leave_days,
+        "lta": record.lta_upload,
+        "special_allowance": record.special_allowance_upload,
+        "nps_allowance_earned": record.nps_allowance_upload,
+        "commission_other": record.commission_other,
+        "arrears": record.arrears,
+    }
+
+
+def _build_record_for_joiner(batch, employee, submission, days_in_month) -> PayslipRecord:
+    """Creates the missing payslip record for an employee who joined after the
+    batch was generated (a NEW_EMPLOYEE item in a later round)."""
+    latest_structure = get_latest_salary_structure(employee)
+    row = _synthetic_row(days_in_month)
+    computed = calculate_payslip_fields(
+        latest_structure,
+        row,
+        submission.month,
+        days_in_month,
+        comp_off_opening_balance=Decimal("0"),
+        leave_opening_balance=Decimal("0"),
+        is_probation=is_in_probation(employee.hire_date, submission.year, submission.month),
+    )
+    # calculate_payslip_fields() already returns the prorated+upload combined
+    # values for these three, so they must come out of `row` before the
+    # spread (same pop as _build_record_for_employee); the raw uploads are
+    # stored on the *_upload fields instead (all zero for a new joiner).
+    lta_upload = row.pop("lta", Decimal("0"))
+    special_allowance_upload = row.pop("special_allowance", Decimal("0"))
+    nps_allowance_upload = row.pop("nps_allowance_earned", Decimal("0"))
+    return PayslipRecord.objects.create(
+        batch=batch,
+        employee=employee,
+        salary_structure_snapshot=latest_structure,
+        days_in_month=days_in_month,
+        salary_advance_opening_balance=Decimal("0"),
+        on_hold_opening_balance=Decimal("0"),
+        lta_upload=lta_upload,
+        special_allowance_upload=special_allowance_upload,
+        nps_allowance_upload=nps_allowance_upload,
+        **row,
+        **computed,
+    )
+
+
+def _fold_into_record(record, employee, submission, approved_by, recompute_structure):
+    """Folds this employee's just-created pending adjustments into an existing
+    payslip record and (optionally) re-derives structure fields after a
+    revision. Marks the adjustments as applied so they are never folded twice.
+    """
+    month, year = submission.month, submission.year
+
+    pending_portal = list(
+        PortalAdjustment.objects.filter(
+            employee=employee, month=month, year=year, applied_in_record__isnull=True
+        )
+    )
+    portal_earnings = sum(
+        (a.amount for a in pending_portal if a.direction == PortalAdjustment.DIRECTION_EARNING),
+        Decimal("0"),
+    )
+    portal_deductions = sum(
+        (a.amount for a in pending_portal if a.direction == PortalAdjustment.DIRECTION_DEDUCTION),
+        Decimal("0"),
+    )
+    if portal_earnings or portal_deductions:
+        record.commission_other = Decimal(record.commission_other or 0) + portal_earnings
+        record.other_deduction = Decimal(record.other_deduction or 0) + portal_deductions
+
+    pending_hold = list(
+        OnHoldAdjustment.objects.filter(employee=employee, applied_in_record__isnull=True)
+    )
+    if pending_hold:
+        record.on_hold_deducted = Decimal(record.on_hold_deducted or 0) + sum(
+            (a.amount for a in pending_hold if a.amount >= 0), Decimal("0")
+        )
+        record.on_hold_released = Decimal(record.on_hold_released or 0) + sum(
+            (-a.amount for a in pending_hold if a.amount < 0), Decimal("0")
+        )
+
+    pending_advance = list(
+        SalaryAdvanceAdjustment.objects.filter(employee=employee, applied_in_record__isnull=True)
+    )
+    if pending_advance:
+        record.salary_advance_disbursed = Decimal(record.salary_advance_disbursed or 0) + sum(
+            (a.amount for a in pending_advance if a.amount >= 0), Decimal("0")
+        )
+        record.salary_advance_recovered = Decimal(record.salary_advance_recovered or 0) + sum(
+            (-a.amount for a in pending_advance if a.amount < 0), Decimal("0")
+        )
+
+    if recompute_structure:
+        latest_structure = get_latest_salary_structure(employee)
+        row = _attendance_row_for(record)
+        computed = calculate_payslip_fields(
+            latest_structure,
+            row,
+            month,
+            record.days_in_month,
+            comp_off_opening_balance=record.comp_off_opening_balance,
+            leave_opening_balance=record.leave_opening_balance,
+            is_probation=is_in_probation(employee.hire_date, year, month),
+        )
+        record.salary_structure_snapshot = latest_structure
+        for field_name, value in computed.items():
+            # gross_salary / the two opening balances are carried through
+            # unchanged by design (see calculate_payslip_fields) — leave them.
+            if field_name in ("gross_salary", "comp_off_opening_balance", "leave_opening_balance"):
+                continue
+            setattr(record, field_name, value)
+
+    record.save()
+
+    if pending_portal:
+        PortalAdjustment.objects.filter(id__in=[a.id for a in pending_portal]).update(
+            applied_in_record=record
+        )
+    if pending_hold:
+        OnHoldAdjustment.objects.filter(id__in=[a.id for a in pending_hold]).update(
+            applied_in_record=record
+        )
+    if pending_advance:
+        SalaryAdvanceAdjustment.objects.filter(id__in=[a.id for a in pending_advance]).update(
+            applied_in_record=record
+        )
+        recovered_advance_ids = [
+            a.advance_id for a in pending_advance if a.advance_id is not None and a.amount < 0
+        ]
+        if recovered_advance_ids:
+            SalaryAdvance.objects.filter(id__in=recovered_advance_ids).update(
+                months_recovered=F("months_recovered") + 1
+            )
+
+
+def refresh_batch_after_apply(submission, approved_by, applied_items):
+    """After a (re-)approval applies items for a month, push those changes into
+    the month's payroll batch if it already exists.
+
+    No-op when the batch hasn't been generated yet — generate-from-portal
+    builds every active employee's record (and folds pending adjustments) then.
+    When it DOES exist, this is what keeps a second (or third…) round's
+    money visible on the payslips instead of sitting unapplied forever.
+    """
+    batch = PayrollBatch.objects.filter(
+        client=submission.client, month=submission.month, year=submission.year
+    ).first()
+    if batch is None:
+        return
+
+    employee_ids = set()
+    new_employee_codes = []
+    revision_employee_ids = set()
+    for item in applied_items:
+        payload = item.payload or {}
+        if item.item_type == PortalSubmissionItem.TYPE_NEW_EMPLOYEE:
+            code = str(payload.get("employee_code") or "").strip()
+            if code:
+                new_employee_codes.append(code)
+            continue
+        if item.item_type == PortalSubmissionItem.TYPE_NOTE:
+            continue
+        employee_id = payload.get("employee_id")
+        if not employee_id:
+            continue
+        employee_ids.add(int(employee_id))
+        if item.item_type == PortalSubmissionItem.TYPE_REVISION:
+            revision_employee_ids.add(int(employee_id))
+
+    employees = list(
+        Employee.objects.filter(client=submission.client, id__in=employee_ids)
+    )
+    for code in new_employee_codes:
+        joiner = Employee.objects.filter(
+            client=submission.client, employee_code=code
+        ).first()
+        if joiner is not None:
+            employees.append(joiner)
+
+    if not employees:
+        return
+
+    days_in_month = calendar.monthrange(submission.year, submission.month)[1]
+    created = 0
+    for employee in employees:
+        record = PayslipRecord.objects.filter(batch=batch, employee=employee).first()
+        if record is None:
+            record = _build_record_for_joiner(batch, employee, submission, days_in_month)
+            created += 1
+        _fold_into_record(
+            record,
+            employee,
+            submission,
+            approved_by,
+            recompute_structure=employee.id in revision_employee_ids,
+        )
+
+    if created:
+        batch.total_records = batch.records.count()
+        batch.save(update_fields=["total_records", "updated_at"])

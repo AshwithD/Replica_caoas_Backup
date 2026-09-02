@@ -205,6 +205,58 @@ class PortalSubmissionItem(AuditableMixin, models.Model):
         return f"{self.submission} — {self.item_type}"
 
 
+class PortalSubmissionEvent(models.Model):
+    """One lifecycle event in a month's submission — the round history a
+    client sees in the portal.
+
+    PortalSubmission is unique per (client, month, year) and its `status`
+    only ever holds the *current* state (it reopens as DRAFT after every
+    approval), so without this log the submitted/approved rounds would be
+    lost. Each submit / approve / reject appends a row here.
+    """
+
+    TYPE_SUBMITTED = "SUBMITTED"
+    TYPE_APPROVED = "APPROVED"
+    TYPE_REJECTED = "REJECTED"
+    TYPE_CHOICES = [
+        (TYPE_SUBMITTED, "Submitted"),
+        (TYPE_APPROVED, "Approved"),
+        (TYPE_REJECTED, "Rejected"),
+    ]
+
+    submission = models.ForeignKey(
+        PortalSubmission,
+        on_delete=models.CASCADE,
+        related_name="history",
+    )
+    event_type = models.CharField(max_length=20, choices=TYPE_CHOICES)
+    item_count = models.PositiveIntegerField(default=0)
+    note = models.TextField(blank=True)  # rejection reason / summary
+    actor_portal = models.ForeignKey(
+        PortalUser,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="portal_events",
+    )
+    actor_staff = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="portal_review_events",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        app_label = "payroll"
+        db_table = "payroll_portal_events"
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self) -> str:
+        return f"{self.submission} — {self.event_type}"
+
+
 class PortalAdjustment(models.Model):
     """
     A one-time earning or deduction approved from the portal, materialized

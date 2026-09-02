@@ -6,8 +6,9 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from ..models import PortalSubmission, PortalSubmissionItem
+from ..models import PortalSubmission, PortalSubmissionEvent, PortalSubmissionItem
 from ..serializers import PortalSubmissionItemSerializer, PortalSubmissionSerializer
+from ..services import record_event
 from .base import PortalScopeBase
 
 
@@ -17,7 +18,7 @@ class PortalSubmissionListCreateView(PortalScopeBase, generics.ListCreateAPIView
     def get_queryset(self):
         return (
             PortalSubmission.objects.filter(client=self.get_client())
-            .prefetch_related("items")
+            .prefetch_related("items", "history")
             .order_by("-year", "-month")
         )
 
@@ -59,6 +60,12 @@ class PortalSubmissionSubmitView(PortalScopeBase, APIView):
             update_fields=[
                 "status", "rejection_reason", "submitted_by", "submitted_at", "updated_at",
             ]
+        )
+        record_event(
+            submission,
+            PortalSubmissionEvent.TYPE_SUBMITTED,
+            item_count=submission.items.count(),
+            actor_portal=request.user,
         )
         return Response(PortalSubmissionSerializer(submission).data)
 

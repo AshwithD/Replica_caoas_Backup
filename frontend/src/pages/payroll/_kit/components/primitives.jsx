@@ -104,8 +104,14 @@ export function Modal({ title, onClose, size = "m", children }) {
   const width = size === "l" ? "max-w-3xl" : size === "s" ? "max-w-sm" : "max-w-xl";
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: "rgba(15, 23, 42, 0.5)" }}
+      className="fixed inset-0 flex items-center justify-center p-4"
+      style={{
+        background: "rgba(15, 23, 42, 0.5)",
+        // Above the app's global sticky header (z-index 1001) so the modal
+        // and everything inside it — including the "Add Change" forms on the
+        // staff side — overlays the header instead of sliding behind/into it.
+        zIndex: 1100,
+      }}
       onClick={onClose}
     >
       <div
@@ -114,8 +120,7 @@ export function Modal({ title, onClose, size = "m", children }) {
           background: "var(--modal-panel-bg)",
           boxShadow: "var(--shadow-xl)",
           // Cap the panel to the viewport so a tall form (e.g. Add Employee)
-          // scrolls inside the modal instead of overflowing under the app's
-          // sticky header (which sits above the modal's z-index).
+          // scrolls inside the modal instead of overflowing the screen.
           maxHeight: "calc(100vh - 2rem)",
         }}
         onClick={(e) => e.stopPropagation()}

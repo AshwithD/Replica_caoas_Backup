@@ -17,8 +17,8 @@ export function ConfirmProvider({ children }) {
       {children}
       {state && (
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center p-4"
-          style={{ background: "rgba(15, 23, 42, 0.5)" }}
+          className="fixed inset-0 flex items-center justify-center p-4"
+          style={{ background: "rgba(15, 23, 42, 0.5)", zIndex: 1110 }}
           onClick={close}
         >
           <div

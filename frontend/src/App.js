@@ -23,6 +23,7 @@ const ComingSoon           = lazy(() => import('./pages/ComingSoon'));
 
 // new
 const PayrollRoutes = lazy(() => import('./pages/payroll/PayrollRoutes'));
+const ClientPortal  = lazy(() => import('./pages/payroll/portal/ClientPortal'));
 
 // Auth
 const SendOTP     = lazy(() => import('./pages/SendOTP'));
@@ -80,6 +81,11 @@ function App() {
               <Route path="/verify-otp"        element={<Suspense fallback={<PageLoader />}><VerifyOTP /></Suspense>} />
               <Route path="/reset-password"    element={<Suspense fallback={<PageLoader />}><ResetWithOTP /></Suspense>} />
               <Route path="/client-onboarding" element={<Suspense fallback={<PageLoader />}><ClientOnboardingForm /></Suspense>} />
+
+              {/* ── Client Portal (public; payroll PortalUser credentials) ── */}
+              <Route path="/portal/*" element={
+                <Suspense fallback={<PageLoader />}><ClientPortal /></Suspense>
+              } />
 
               {/* ── Protected Routes ── */}
               <Route path="/*" element={
