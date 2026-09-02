@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   Building2, Plus, Layers, Clock3, CheckCircle2,
   AlertTriangle, Loader2, ArrowUpRight, FileSpreadsheet,
-  LayoutGrid, List, ShieldCheck, Inbox,
+  LayoutGrid, List, ShieldCheck, Inbox, Bell,
 } from "lucide-react";
 import { useClients, useOverviewStats, useBatches } from "../_kit/hooks/hooks";
+import { api } from "../_kit/api/client";
 import { ErrorState, Skeleton, Button, Card, Badge } from "../_kit/components/primitives";
 import { DashboardStatCard } from "../_kit/components/StatCard";
 import Breadcrumb from "../_kit/components/Breadcrumb";
@@ -15,6 +16,44 @@ import { useSmartBack } from "../_kit/utils/utils";
 import BatchList from "./BatchList";
 import EmailLogBatches from "./EmailLogBatches";
 import { ClientFormModal } from "./FirmDetails";
+
+/* ── "someone submitted something" signal ─────────────────────────────────
+   The dashboard shouldn't need a click to reveal that a client sent their
+   monthly input. This polls a tiny counter endpoint (two aggregate queries,
+   no serialization) every 60s and, if that endpoint isn't deployed yet,
+   falls back to counting the submissions list client-side. ─────────────── */
+function usePortalAlerts() {
+  const [stats, setStats] = useState({ awaiting_review: 0, pending_items: 0 });
+
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      try {
+        const res = await api.get("payroll/portal-submissions/stats/");
+        if (alive && res?.data && typeof res.data.awaiting_review === "number") {
+          setStats(res.data);
+          return;
+        }
+      } catch { /* fall through to the list */ }
+      try {
+        const res = await api.get("payroll/portal-submissions/");
+        const list = Array.isArray(res.data) ? res.data : res.data?.results || [];
+        if (!alive) return;
+        setStats({
+          awaiting_review: list.filter((s) => s.status === "SUBMITTED").length,
+          pending_items: list.reduce((n, s) => n + Number(s.pending_item_count || 0), 0),
+        });
+      } catch { /* leave the badge hidden rather than break the dashboard */ }
+    };
+    load();
+    const timer = setInterval(load, 60000);
+    const onFocus = () => load();
+    window.addEventListener("focus", onFocus);
+    return () => { alive = false; clearInterval(timer); window.removeEventListener("focus", onFocus); };
+  }, []);
+
+  return stats;
+}
 
 /* ── one card per client — the real landing surface now that payroll is
    multi-client. Shows this client's own batch counts (computed client-side
@@ -149,6 +188,9 @@ export default function PayrollWorkspace() {
   const stats = statsQuery.data;
   const batchesQuery = useBatches({});
   const batches = batchesQuery.data?.results ?? batchesQuery.data ?? [];
+  // Client-portal signal for the header button / banner below.
+  const portal = usePortalAlerts();
+  const awaiting = Number(portal.awaiting_review || 0);
 
   const openBatches    = () => navigate("/payroll?view=batches");
   const openBatchesWithStatus = (status) => navigate(`/payroll?view=batches&status=${status}`);
@@ -205,12 +247,86 @@ export default function PayrollWorkspace() {
                 <Button size="sm" variant="secondary" onClick={() => navigate("/payroll/portal-users")}>
                   <ShieldCheck size={14} /> Portal Users
                 </Button>
-                <Button size="sm" variant="secondary" onClick={() => navigate("/payroll/portal-submissions")}>
-                  <Inbox size={14} /> Portal Submissions
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => navigate("/payroll/portal-submissions")}
+                  title={
+                    awaiting > 0
+                      ? `${awaiting} client submission${awaiting === 1 ? "" : "s"} awaiting your review`
+                      : "No submissions awaiting review"
+                  }
+                  aria-label={
+                    awaiting > 0
+                      ? `Portal Submissions, ${awaiting} awaiting review`
+                      : "Portal Submissions"
+                  }
+                  style={
+                    awaiting > 0
+                      ? { background: "var(--amber-bg)", border: "1px solid var(--amber-border)", color: "var(--amber-text-strong)" }
+                      : undefined
+                  }
+                >
+                  <span style={{ position: "relative", display: "inline-flex" }}>
+                    <Inbox size={14} />
+                    {awaiting > 0 && (
+                      // unread dot — visible even when the button is narrow
+                      <span
+                        style={{
+                          position: "absolute", top: -3, right: -3, width: 7, height: 7,
+                          borderRadius: "50%", background: "var(--red-solid)",
+                          boxShadow: "0 0 0 2px var(--surface-1)",
+                        }}
+                      />
+                    )}
+                  </span>
+                  Portal Submissions
+                  {awaiting > 0 && (
+                    <span
+                      style={{
+                        minWidth: 18, height: 18, padding: "0 5px", borderRadius: 999,
+                        background: "var(--red-solid)", color: "#fff",
+                        fontSize: 11, fontWeight: 700, lineHeight: "18px", textAlign: "center",
+                      }}
+                    >
+                      {awaiting > 99 ? "99+" : awaiting}
+                    </span>
+                  )}
                 </Button>
               </>
             }
           />
+        </Card>
+      )}
+
+      {/* Nobody should have to open the page to find out a client submitted. */}
+      {view === "overview" && awaiting > 0 && (
+        <Card
+          className="flex flex-wrap items-center gap-3 px-4 py-3"
+          style={{ background: "var(--amber-bg-subtle)", borderColor: "var(--amber-border)" }}
+        >
+          <span
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
+            style={{ background: "var(--amber-bg-strong)", color: "var(--amber-text-strong)" }}
+          >
+            <Bell size={17} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold" style={{ color: "var(--text-strong)" }}>
+              {awaiting} client submission{awaiting === 1 ? "" : "s"} awaiting your review
+            </span>
+            <span className="block text-xs" style={{ color: "var(--text-muted)" }}>
+              {portal.pending_items > 0
+                ? `${portal.pending_items} change${portal.pending_items === 1 ? "" : "s"} still to be applied`
+                : "Open Portal Submissions to approve and apply the changes."}
+              {portal.last_submitted_at
+                ? ` · latest ${new Date(portal.last_submitted_at).toLocaleString()}`
+                : ""}
+            </span>
+          </span>
+          <Button size="sm" onClick={() => navigate("/payroll/portal-submissions")}>
+            Review now <ArrowUpRight size={14} />
+          </Button>
         </Card>
       )}
 

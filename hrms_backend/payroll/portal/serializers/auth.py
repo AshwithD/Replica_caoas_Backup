@@ -3,6 +3,7 @@
 from rest_framework import serializers
 
 from ..models import PortalUser
+from .submissions import client_logo_url
 
 
 class PortalLoginSerializer(serializers.Serializer):
@@ -13,12 +14,16 @@ class PortalLoginSerializer(serializers.Serializer):
 class PortalUserSelfSerializer(serializers.ModelSerializer):
     client_id = serializers.IntegerField(source="client.id", read_only=True)
     client_name = serializers.CharField(source="client.name", read_only=True)
+    client_logo = serializers.SerializerMethodField()
+
+    def get_client_logo(self, obj):
+        return client_logo_url(obj.client, self.context.get("request"))
 
     class Meta:
         model = PortalUser
         fields = [
             "id", "email", "role", "is_active", "must_change_password",
-            "client_id", "client_name",
+            "client_id", "client_name", "client_logo",
         ]
         read_only_fields = fields
 

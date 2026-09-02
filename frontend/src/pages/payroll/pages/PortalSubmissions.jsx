@@ -1,6 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Check, X, Inbox, ChevronRight, ArrowRight, Loader2 } from "lucide-react";
+import {
+  AlertCircle, ArrowRight, CalendarDays, Check, CheckCircle2, ChevronDown,
+  ChevronRight, Clock, FileText, Inbox, LayoutGrid, List, Loader2, Lock, Minus, Undo2,
+  MessageSquareText, PauseCircle, Plus, Search, StickyNote, TrendingUp,
+  UserMinus, UserPlus, Wallet, X,
+} from "lucide-react";
 import {
   Badge, Button, Card, ErrorState, Input, Modal, Skeleton, Textarea,
 } from "../_kit/components/primitives";
@@ -8,9 +13,81 @@ import { api } from "../_kit/api/client";
 import PageHero from "../_kit/components/PageHero";
 import Breadcrumb from "../_kit/components/Breadcrumb";
 import EmptyState from "../_kit/components/EmptyState";
+import ClientLogo from "../_kit/components/ClientLogo";
+import MonthYearPicker from "../_kit/components/MonthYearPicker";
 
 const STATUS_TONES = { DRAFT: "slate", SUBMITTED: "amber", APPROVED: "green", REJECTED: "red" };
 const ITEM_TONES = { PENDING: "slate", APPLIED: "green", SKIPPED: "blue", FAILED: "red" };
+
+// Staff-facing wording for a month's state (the client sees friendlier copy).
+const STATUS_META = {
+  SUBMITTED: { label: "Awaiting review", icon: Clock, tone: "amber" },
+  DRAFT: { label: "Draft (client editing)", icon: FileText, tone: "slate" },
+  APPROVED: { label: "Approved", icon: CheckCircle2, tone: "green" },
+  REJECTED: { label: "Returned to client", icon: AlertCircle, tone: "red" },
+};
+
+// One icon + colour per change type, shared by the list rows and the
+// "add input from your side" tiles (mirrors the client portal).
+const TYPE_ICON = {
+  NEW_EMPLOYEE: UserPlus,
+  REVISION: TrendingUp,
+  EXIT: UserMinus,
+  SALARY_HOLD: PauseCircle,
+  ADVANCE: Wallet,
+  ONE_TIME_EARNING: Plus,
+  ONE_TIME_DEDUCTION: Minus,
+  NOTE: MessageSquareText,
+};
+const TYPE_WASH = {
+  NEW_EMPLOYEE: { bg: "var(--blue-bg)", fg: "var(--blue-text)" },
+  REVISION: { bg: "var(--purple-bg)", fg: "var(--purple-text)" },
+  EXIT: { bg: "var(--red-bg)", fg: "var(--red-text)" },
+  SALARY_HOLD: { bg: "var(--blue-bg)", fg: "var(--blue-text)" },
+  ADVANCE: { bg: "var(--amber-bg)", fg: "var(--amber-text)" },
+  ONE_TIME_EARNING: { bg: "var(--purple-bg)", fg: "var(--purple-text)" },
+  ONE_TIME_DEDUCTION: { bg: "var(--red-bg)", fg: "var(--red-text)" },
+  NOTE: { bg: "var(--amber-bg)", fg: "var(--amber-text)" },
+};
+
+const TONE_TEXT = {
+  slate: "var(--text-primary)",
+  amber: "var(--amber-text)",
+  green: "var(--green-text)",
+  red: "var(--red-text)",
+  blue: "var(--blue-text)",
+};
+
+// A month whose payslips are already generated is closed on the client side
+// (payroll/portal/locks.py). Staff still see everything, with a warning.
+function LockChip({ lock }) {
+  if (!lock?.locked) return null;
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
+      style={{ background: "var(--surface-5)", color: "var(--text-secondary)" }}
+      title={lock.reason}
+    >
+      <Lock size={11} /> Payslips issued
+    </span>
+  );
+}
+
+const monthLabel = (m, y) =>
+  `${new Date(Number(y), Number(m) - 1, 1).toLocaleString("en", { month: "long" })} ${y}`;
+
+function TypeIcon({ type, size = 34 }) {
+  const Icon = TYPE_ICON[type] || FileText;
+  const wash = TYPE_WASH[type] || { bg: "var(--surface-3)", fg: "var(--text-muted)" };
+  return (
+    <span
+      className="flex items-center justify-center rounded-lg shrink-0"
+      style={{ width: size, height: size, background: wash.bg, color: wash.fg }}
+    >
+      <Icon size={Math.round(size * 0.5)} />
+    </span>
+  );
+}
 const MONTHS = Array.from({ length: 12 }, (_, i) => ({
   value: String(i + 1),
   label: new Date(2000, i, 1).toLocaleString("en", { month: "long" }),
@@ -222,7 +299,7 @@ function SubmissionDetail({ submission, onClose, onChanged, onProceeded }) {
   const [existingBatchId, setExistingBatchId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [reason, setReason] = useState("");
-  const [busy, setBusy] = useState(null); // "approve" | "reject" | "proceed"
+  const [busy, setBusy] = useState(null); // "approve" | "reject" | "apply" | "proceed"
   const [error, setError] = useState("");
   const [addingType, setAddingType] = useState(null);
   const [savingItem, setSavingItem] = useState(false);
@@ -261,6 +338,50 @@ function SubmissionDetail({ submission, onClose, onChanged, onProceeded }) {
       await refreshItems();
     } catch (err) {
       setError(err?.response?.data?.detail || "Approval failed.");
+    } finally { setBusy(null); }
+  };
+
+  // A month reopens to DRAFT after every approval, so items added afterwards
+  // (by the client, or emailed in) sit PENDING with no Approve button — this
+  // applies them without waiting for the client to resubmit.
+  const applyPending = async () => {
+    setBusy("apply"); setError("");
+    try {
+      const res = await api.post(`payroll/portal-submissions/${submission.id}/apply-pending/`);
+      onChanged(res.data);
+      await refreshItems();
+    } catch (err) {
+      setError(err?.response?.data?.detail || "Could not apply the pending changes.");
+    } finally { setBusy(null); }
+  };
+
+  // One change at a time: on a month that holds a mix of good and bad input,
+  // bulk-applying is what pushes the wrong values through. Apply the correct
+  // ones, skip the rest.
+  const applyItem = async (item) => {
+    setBusy(`item-${item.id}`); setError("");
+    try {
+      const res = await api.post(`payroll/portal-submissions/${submission.id}/items/${item.id}/apply/`);
+      if (res.data?.submission) onChanged(res.data);
+      await refreshItems();
+    } catch (err) {
+      setError(err?.response?.data?.detail || "Could not apply that change.");
+      await refreshItems();
+    } finally { setBusy(null); }
+  };
+
+  const skipItem = async (item) => {
+    const reason = window.prompt(
+      "Skip this change so it stops queueing for payroll.\nOptional note (why):",
+      "",
+    );
+    if (reason === null) return; // cancelled
+    setBusy(`item-${item.id}`); setError("");
+    try {
+      await api.post(`payroll/portal-submissions/${submission.id}/items/${item.id}/skip/`, { reason });
+      await refreshItems();
+    } catch (err) {
+      setError(err?.response?.data?.detail || "Could not skip that change.");
     } finally { setBusy(null); }
   };
 
@@ -303,30 +424,91 @@ function SubmissionDetail({ submission, onClose, onChanged, onProceeded }) {
   };
 
   const isSubmitted = submission.status === "SUBMITTED";
+  // A returned month must NOT offer "apply pending": you sent it back because
+  // the values were wrong, so applying the same items would push that wrong
+  // data into payroll. It waits for the client's corrected resubmission.
+  const isRejected = submission.status === "REJECTED";
+  const pendingItems = (items || []).filter((it) => it.status !== "APPLIED");
+  const pendingCount = pendingItems.length;
   const summary = submission._last_summary;
 
+  const meta = STATUS_META[submission.status] || STATUS_META.DRAFT;
+  const StatusIcon = meta.icon;
+  const appliedCount = (items || []).length - pendingCount;
+
+  const title = (
+    <span className="flex items-center gap-3 min-w-0">
+      {/* the client's own logo, so staff always know whose month this is */}
+      <ClientLogo name={submission.client_name} logo={submission.client_logo} size={38} />
+      <span className="min-w-0">
+        <span className="block truncate text-base font-semibold" style={{ color: "var(--text-strong)" }}>
+          {submission.client_name || `Client #${submission.client}`}
+        </span>
+        <span className="block text-xs font-normal" style={{ color: "var(--text-muted)" }}>
+          {monthLabel(submission.month, submission.year)} · monthly input
+        </span>
+      </span>
+    </span>
+  );
+
   return (
-    <Modal title={`${submission.client_name || "Client"} — ${String(submission.month).padStart(2, "0")}/${submission.year}`} onClose={onClose} size="l">
+    <Modal title={title} onClose={onClose} size="l">
       <div className="space-y-4">
-        <div className="flex items-center gap-2">
-          <Badge tone={STATUS_TONES[submission.status] || "slate"}>{submission.status}</Badge>
-          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-            {submission.submitted_at ? `Submitted ${new Date(submission.submitted_at).toLocaleString()}` : ""}
+        {/* ── status strip ─────────────────────────────────────────────── */}
+        <div
+          className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl px-3 py-2.5"
+          style={{ background: "var(--surface-2)", border: "1px solid var(--border-3)" }}
+        >
+          <span className="flex items-center gap-1.5 text-sm font-semibold" style={{ color: TONE_TEXT[meta.tone] }}>
+            <StatusIcon size={15} /> {meta.label}
           </span>
+          {!loading && items && (
+            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+              {items.length} item{items.length === 1 ? "" : "s"}
+              {pendingCount > 0 ? ` · ${pendingCount} pending` : appliedCount > 0 ? " · all applied" : ""}
+            </span>
+          )}
+          {submission.submitted_at && (
+            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+              Submitted {new Date(submission.submitted_at).toLocaleString()}
+            </span>
+          )}
           {submission.approved_at && (
-            <span className="text-xs" style={{ color: "var(--green-text)" }}>
-              ✓ approved {new Date(submission.approved_at).toLocaleString()}
+            <span className="flex items-center gap-1 text-xs" style={{ color: "var(--green-text)" }}>
+              <Check size={12} /> approved {new Date(submission.approved_at).toLocaleString()}
             </span>
           )}
         </div>
 
+        {submission.payroll_lock?.locked && (
+          <div
+            className="flex gap-2 rounded-xl px-3 py-2.5"
+            style={{ background: "var(--red-bg-subtle)", border: "1px solid var(--red-border)" }}
+          >
+            <Lock size={15} style={{ color: "var(--red-text)", flexShrink: 0, marginTop: 2 }} />
+            <p className="text-sm" style={{ color: "var(--red-text)" }}>
+              <b>Month closed — {submission.payroll_lock.reason}</b>
+              <br />
+              The client can no longer add or edit changes here. Anything you apply
+              now will <b>not</b> appear on the payslips already generated — correct the
+              batch and regenerate/resend it from Batch Review.
+            </p>
+          </div>
+        )}
+
         {submission.notes && (
-          <p className="text-sm rounded-lg px-3 py-2" style={{ background: "var(--surface-3)", color: "var(--text-secondary)" }}>{submission.notes}</p>
+          <div className="flex gap-2 rounded-xl px-3 py-2.5" style={{ background: "var(--amber-bg-subtle)", border: "1px solid var(--amber-border)" }}>
+            <StickyNote size={15} style={{ color: "var(--amber-text)", flexShrink: 0, marginTop: 2 }} />
+            <p className="text-sm" style={{ color: "var(--text-primary)", whiteSpace: "pre-wrap" }}>{submission.notes}</p>
+          </div>
         )}
         {submission.rejection_reason && (
-          <p className="text-sm rounded-lg px-3 py-2" style={{ background: "var(--red-bg-subtle)", color: "var(--red-text)" }}>
-            Rejection reason: {submission.rejection_reason}
-          </p>
+          <div className="flex gap-2 rounded-xl px-3 py-2.5" style={{ background: "var(--red-bg-subtle)", border: "1px solid var(--red-border)" }}>
+            <AlertCircle size={15} style={{ color: "var(--red-text)", flexShrink: 0, marginTop: 2 }} />
+            <p className="text-sm" style={{ color: "var(--red-text)" }}>
+              <b>Returned to client:</b> {submission.rejection_reason}
+            </p>
+          </div>
         )}
         {summary && (
           <p className="text-xs" style={{ color: "var(--text-muted)" }}>
@@ -335,33 +517,89 @@ function SubmissionDetail({ submission, onClose, onChanged, onProceeded }) {
         )}
 
         {/* ── data already present ─────────────────────────────────────── */}
-        <div className="rounded-lg overflow-hidden" style={{ border: "1px solid var(--border-3)" }}>
+        <div className="rounded-xl overflow-hidden" style={{ border: "1px solid var(--border-3)" }}>
+          <div
+            className="flex items-center justify-between px-4 py-2"
+            style={{ background: "var(--table-header-bg)", borderBottom: "1px solid var(--border-3)" }}
+          >
+            <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "var(--text-muted)" }}>
+              Changes in this month
+            </span>
+            {!loading && items && items.length > 0 && (
+              <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                {appliedCount} applied · {pendingCount} pending
+              </span>
+            )}
+          </div>
           {loading ? (
             <div className="p-4"><Skeleton className="h-32" /></div>
           ) : !items || items.length === 0 ? (
-            <div className="p-6 text-center text-sm" style={{ color: "var(--text-muted)" }}>No items yet.</div>
+            <div className="p-6 text-center text-sm" style={{ color: "var(--text-muted)" }}>
+              Nothing submitted yet for this month.
+            </div>
           ) : (
-            <div className="divide-y">
+            <div className="divide-y" style={{ borderColor: "var(--border-2)" }}>
               {items.map((it) => {
                 const isNote = it.item_type === "NOTE";
                 return (
                   <div
                     key={it.id}
-                    className="flex items-start gap-3 px-4 py-2.5"
+                    className="flex items-start gap-3 px-4 py-3"
                     style={isNote ? { background: "var(--amber-bg-subtle)" } : undefined}
                   >
+                    <TypeIcon type={it.item_type} />
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium" style={{ color: "var(--text-strong)" }}>
-                          {isNote ? "📝 " : ""}{TYPE_LABELS[it.item_type] || it.item_type}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-semibold" style={{ color: "var(--text-strong)" }}>
+                          {TYPE_LABELS[it.item_type] || it.item_type}
                         </span>
                         <Badge tone={ITEM_TONES[it.status] || "slate"}>{it.status}</Badge>
                       </div>
                       <p className="text-xs mt-0.5" style={{ color: isNote ? "var(--text-primary)" : "var(--text-secondary)", whiteSpace: "pre-wrap" }}>
                         {payloadSummary(it, employees)}
                       </p>
-                      {it.error && <p className="text-xs mt-0.5" style={{ color: "var(--red-text)" }}>{it.error}</p>}
+                      {it.error && (
+                        <p
+                          className="flex items-center gap-1 text-xs mt-1"
+                          style={{ color: it.status === "SKIPPED" ? "var(--text-muted)" : "var(--red-text)" }}
+                        >
+                          <AlertCircle size={12} /> {it.error}
+                        </p>
+                      )}
                     </div>
+
+                    {/* Per-item control — the safe alternative to a blanket
+                        "apply everything" on a month with mixed input. */}
+                    {!isSubmitted && it.status !== "APPLIED" && (
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        {!isRejected && (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            disabled={busy === `item-${it.id}`}
+                            onClick={() => applyItem(it)}
+                            title="Apply just this change"
+                            style={{ color: "var(--green-text)", borderColor: "var(--green-border)" }}
+                          >
+                            {busy === `item-${it.id}`
+                              ? <Loader2 size={13} className="animate-spin" />
+                              : <Check size={13} />}
+                            Apply
+                          </Button>
+                        )}
+                        {it.status !== "SKIPPED" && (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            disabled={busy === `item-${it.id}`}
+                            onClick={() => skipItem(it)}
+                            title="Dismiss this change — it will never be applied"
+                          >
+                            <X size={13} /> Skip
+                          </Button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -373,9 +611,14 @@ function SubmissionDetail({ submission, onClose, onChanged, onProceeded }) {
 
         {/* ── approve / reject (when client submitted) ─────────────────── */}
         {isSubmitted && (
-          <div className="flex items-end gap-2 pt-1" style={{ borderTop: "1px solid var(--border-1)" }}>
-            <div className="flex-1 space-y-1">
-              <label className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>Reject reason</label>
+          <div
+            className="flex flex-wrap items-end gap-2 rounded-xl p-3"
+            style={{ background: "var(--amber-bg-subtle)", border: "1px solid var(--amber-border)" }}
+          >
+            <div className="flex-1 min-w-[200px] space-y-1">
+              <label className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
+                Reject reason
+              </label>
               <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why it's sent back (optional)" />
             </div>
             <Button variant="secondary" disabled={busy === "reject"} onClick={reject}>
@@ -387,22 +630,74 @@ function SubmissionDetail({ submission, onClose, onChanged, onProceeded }) {
           </div>
         )}
 
+        {/* ── apply what the client hasn't resubmitted ─────────────────── */}
+        {/* Returned months get an explanation instead of an Apply button. */}
+        {isRejected && pendingCount > 0 && (
+          <div
+            className="flex flex-wrap items-center gap-3 rounded-xl p-3"
+            style={{ background: "var(--surface-2)", border: "1px solid var(--border-3)" }}
+          >
+            <Undo2 size={16} style={{ color: "var(--text-muted)", flexShrink: 0 }} />
+            <p className="text-xs flex-1 min-w-[220px]" style={{ color: "var(--text-secondary)" }}>
+              You returned this month{submission.rejection_reason ? ` — "${submission.rejection_reason}"` : ""}.
+              The {pendingCount} change{pendingCount === 1 ? "" : "s"} below stay as they are until the client
+              corrects and resubmits — applying them now would push the same wrong values into payroll.
+              Use <b>Skip</b> on anything that should never be applied.
+            </p>
+          </div>
+        )}
+
+        {!isSubmitted && !isRejected && pendingCount > 0 && (
+          <div
+            className="flex flex-wrap items-center gap-3 rounded-xl p-3"
+            style={{ background: "var(--green-bg-subtle)", border: "1px solid var(--green-border)" }}
+          >
+            <p className="text-xs flex-1 min-w-[220px]" style={{ color: "var(--text-secondary)" }}>
+              {pendingCount} item{pendingCount === 1 ? "" : "s"} not applied yet. This month is{" "}
+              <b>{submission.status}</b> — it reopens after every approval, so the client hasn't
+              (re)submitted these. You can apply them now.
+            </p>
+            <Button
+              disabled={busy === "apply"}
+              onClick={applyPending}
+              style={{ background: "var(--green-text)" }}
+            >
+              {busy === "apply" ? (
+                <><Loader2 size={14} className="animate-spin" /> Applying…</>
+              ) : (
+                <><Check size={14} /> Apply {pendingCount} pending change{pendingCount === 1 ? "" : "s"}</>
+              )}
+            </Button>
+          </div>
+        )}
+
         {/* ── add input from your side ─────────────────────────────────── */}
         <div className="pt-1" style={{ borderTop: "1px solid var(--border-1)" }}>
           <p className="text-xs font-semibold mb-2" style={{ color: "var(--text-secondary)" }}>
             Add input from your side (client emailed a change you're keying in)
           </p>
-          <div className="flex flex-wrap gap-2 mb-3">
-            {ITEM_TYPES.map((t) => (
-              <Button
-                key={t.key}
-                size="sm"
-                variant={addingType === t.key ? "primary" : "secondary"}
-                onClick={() => setAddingType(addingType === t.key ? null : t.key)}
-              >
-                {t.icon} {t.label}
-              </Button>
-            ))}
+          <div className="grid grid-cols-2 gap-2 mb-3 sm:grid-cols-4">
+            {ITEM_TYPES.map((t) => {
+              const active = addingType === t.key;
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setAddingType(active ? null : t.key)}
+                  className="flex items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors"
+                  style={{
+                    background: active ? "var(--blue-bg)" : "var(--surface-1)",
+                    border: `1px solid ${active ? "var(--blue-border)" : "var(--border-3)"}`,
+                    boxShadow: active ? "0 0 0 1px var(--blue-border)" : "none",
+                  }}
+                >
+                  <TypeIcon type={t.key} size={28} />
+                  <span className="text-xs font-medium leading-tight" style={{ color: "var(--text-primary)" }}>
+                    {t.label}
+                  </span>
+                </button>
+              );
+            })}
           </div>
           {addingType && (
             <StaffItemForm
@@ -437,17 +732,329 @@ function SubmissionDetail({ submission, onClose, onChanged, onProceeded }) {
   );
 }
 
+function StatTile({ icon: Icon, label, value, tone = "slate", active, onClick }) {
+  const text = TONE_TEXT[tone] || TONE_TEXT.slate;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-3 rounded-2xl px-4 py-3 text-left transition-colors"
+      style={{
+        background: active ? "var(--surface-2)" : "var(--surface-1)",
+        border: `1px solid ${active ? "var(--border-5)" : "var(--border-3)"}`,
+        boxShadow: active ? "var(--shadow-md)" : "none",
+        cursor: onClick ? "pointer" : "default",
+      }}
+      aria-pressed={active ? "true" : "false"}
+    >
+      <span
+        className="flex h-10 w-10 items-center justify-center rounded-xl shrink-0"
+        style={{ background: tone === "slate" ? "var(--surface-3)" : `var(--${tone}-bg)`, color: text }}
+      >
+        <Icon size={18} />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-xl font-semibold leading-none" style={{ color: "var(--text-strong)" }}>{value}</span>
+        <span className="block text-xs mt-1 truncate" style={{ color: "var(--text-muted)" }}>{label}</span>
+      </span>
+    </button>
+  );
+}
+
+function SubmissionCard({ s, onOpen }) {
+  const meta = STATUS_META[s.status] || STATUS_META.DRAFT;
+  const StatusIcon = meta.icon;
+  const pending = Number(s.pending_item_count || 0);
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex w-full flex-col gap-3 rounded-2xl p-4 text-left transition-shadow hover:shadow-md"
+      style={{ background: "var(--surface-1)", border: "1px solid var(--border-3)" }}
+    >
+      <div className="flex items-start gap-3">
+        {/* real client logo — initials fallback while a client has none */}
+        <ClientLogo name={s.client_name} logo={s.client_logo} size={44} />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold" style={{ color: "var(--text-strong)" }}>
+            {s.client_name || `Client #${s.client}`}
+          </p>
+          <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+            {monthLabel(s.month, s.year)}
+          </p>
+        </div>
+        <Badge tone={meta.tone}>
+          <StatusIcon size={11} /> {meta.label}
+        </Badge>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span
+          className="rounded-full px-2 py-0.5 text-xs"
+          style={{ background: "var(--surface-3)", color: "var(--text-secondary)" }}
+        >
+          {s.item_count} change{s.item_count === 1 ? "" : "s"}
+        </span>
+        {pending > 0 && (
+          <span
+            className="rounded-full px-2 py-0.5 text-xs font-medium"
+            style={{ background: "var(--amber-bg-strong)", color: "var(--amber-text-strong)" }}
+          >
+            {pending} pending
+          </span>
+        )}
+        {s.approved_at && (
+          <span className="flex items-center gap-1 text-xs" style={{ color: "var(--green-text)" }}>
+            <Check size={12} /> last approved {new Date(s.approved_at).toLocaleDateString()}
+          </span>
+        )}
+        <LockChip lock={s.payroll_lock} />
+      </div>
+
+      {s.note_preview && (
+        <p
+          className="flex items-start gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
+          style={{ background: "var(--amber-bg-subtle)", color: "var(--amber-text-strong)" }}
+          title={s.note_preview}
+        >
+          <StickyNote size={12} style={{ flexShrink: 0, marginTop: 1 }} />
+          <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+            {s.note_preview}
+          </span>
+        </p>
+      )}
+
+      <span
+        className="mt-auto flex items-center justify-between pt-2 text-xs font-medium"
+        style={{ borderTop: "1px solid var(--border-2)", color: "var(--text-secondary)" }}
+      >
+        {s.submitted_at ? `Submitted ${new Date(s.submitted_at).toLocaleDateString()}` : "Not submitted yet"}
+        <span className="flex items-center gap-1" style={{ color: "var(--blue-text)" }}>
+          Review <ChevronRight size={13} />
+        </span>
+      </span>
+    </button>
+  );
+}
+
+function SubmissionRow({ s, onOpen }) {
+  const meta = STATUS_META[s.status] || STATUS_META.DRAFT;
+  const StatusIcon = meta.icon;
+  const pending = Number(s.pending_item_count || 0);
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="flex w-full items-center gap-4 px-4 py-3 text-left transition-colors"
+      style={{ background: "transparent" }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = "var(--surface-2)"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+    >
+      {/* real client logo — initials fallback while a client has none */}
+      <ClientLogo name={s.client_name} logo={s.client_logo} size={38} />
+
+      <span className="min-w-0 flex-1">
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="truncate text-sm font-semibold" style={{ color: "var(--text-strong)" }}>
+            {s.client_name || `Client #${s.client}`}
+          </span>
+          <Badge tone={meta.tone}>
+            <StatusIcon size={11} /> {meta.label}
+          </Badge>
+          {pending > 0 && (
+            <span
+              className="rounded-full px-2 py-0.5 text-xs font-medium"
+              style={{ background: "var(--amber-bg-strong)", color: "var(--amber-text-strong)" }}
+            >
+              {pending} pending
+            </span>
+          )}
+          <LockChip lock={s.payroll_lock} />
+        </span>
+        <span className="mt-0.5 block truncate text-xs" style={{ color: "var(--text-muted)" }}>
+          {monthLabel(s.month, s.year)} · {s.item_count} change{s.item_count === 1 ? "" : "s"}
+          {s.submitted_at ? ` · submitted ${new Date(s.submitted_at).toLocaleDateString()}` : ""}
+          {s.approved_at ? ` · last approved ${new Date(s.approved_at).toLocaleDateString()}` : ""}
+        </span>
+        {s.note_preview && (
+          <span
+            className="mt-1 flex items-start gap-1.5 text-xs"
+            style={{ color: "var(--amber-text-strong)" }}
+            title={s.note_preview}
+          >
+            <StickyNote size={12} style={{ flexShrink: 0, marginTop: 1 }} />
+            <span className="truncate">{s.note_preview}</span>
+          </span>
+        )}
+      </span>
+
+      <span className="flex shrink-0 items-center gap-1 text-xs font-medium" style={{ color: "var(--blue-text)" }}>
+        Review <ChevronRight size={14} />
+      </span>
+    </button>
+  );
+}
+
+// Month scope selector — mirrors the client portal's picker so both sides of
+// the portal are driven the same way.
+function MonthScope({ period, onChange, onClear }) {
+  const [open, setOpen] = useState(false);
+  const now = new Date();
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium"
+        style={{ background: "var(--surface-1)", border: "1px solid var(--border-3)", color: "var(--text-primary)" }}
+      >
+        <CalendarDays size={15} style={{ color: "var(--text-muted)" }} />
+        {period ? monthLabel(period.month, period.year) : "All months"}
+        <ChevronDown size={15} style={{ color: "var(--text-muted)" }} />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0" style={{ zIndex: 60 }} onClick={() => setOpen(false)} />
+          <div
+            className="absolute right-0 mt-2 rounded-xl p-2"
+            style={{
+              zIndex: 61, minWidth: 260, background: "var(--surface-1)",
+              border: "1px solid var(--border-3)", boxShadow: "var(--shadow-xl)",
+            }}
+          >
+            <MonthYearPicker
+              month={period ? Number(period.month) : now.getMonth() + 1}
+              year={period ? Number(period.year) : now.getFullYear()}
+              onChange={(m, y) => { onChange({ month: m, year: y }); setOpen(false); }}
+            />
+            <div className="mt-2 flex gap-2">
+              <Button
+                size="sm" variant="secondary" className="flex-1"
+                onClick={() => { onChange({ month: now.getMonth() + 1, year: now.getFullYear() }); setOpen(false); }}
+              >
+                This month
+              </Button>
+              <Button
+                size="sm" variant={period ? "secondary" : "primary"} className="flex-1"
+                onClick={() => { onClear(); setOpen(false); }}
+              >
+                All months
+              </Button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function ViewToggle({ view, onChange }) {
+  const opt = (key, Icon, label) => {
+    const active = view === key;
+    return (
+      <button
+        key={key}
+        type="button"
+        title={label}
+        aria-label={label}
+        aria-pressed={active ? "true" : "false"}
+        onClick={() => onChange(key)}
+        className="flex h-8 w-8 items-center justify-center rounded-md transition-colors"
+        style={{
+          background: active ? "var(--surface-1)" : "transparent",
+          color: active ? "var(--text-strong)" : "var(--text-muted)",
+          boxShadow: active ? "var(--shadow-md)" : "none",
+        }}
+      >
+        <Icon size={16} />
+      </button>
+    );
+  };
+  return (
+    <div
+      className="flex items-center gap-1 rounded-lg p-1"
+      style={{ background: "var(--surface-3)", border: "1px solid var(--border-3)" }}
+    >
+      {opt("list", List, "List view")}
+      {opt("grid", LayoutGrid, "Grid view")}
+    </div>
+  );
+}
+
+const VIEW_KEY = "payroll.portalSubmissions.view";
+
+const FILTERS = [
+  { key: "ALL", label: "All" },
+  { key: "SUBMITTED", label: "Awaiting review" },
+  { key: "DRAFT", label: "Drafts" },
+  { key: "APPROVED", label: "Approved" },
+  { key: "REJECTED", label: "Returned" },
+];
+
 export default function PortalSubmissions() {
   const navigate = useNavigate();
   const { data, isLoading, isError, refetch } = useSubmissions();
   const list = unwrapList(data);
   const [selected, setSelected] = useState(null);
+  const [filter, setFilter] = useState("ALL");
+  const [query, setQuery] = useState("");
+  // Default scope = the month staff are actually working on. `null` = every
+  // month (chosen from the picker).
+  const [period, setPeriod] = useState(() => {
+    const now = new Date();
+    return { month: now.getMonth() + 1, year: now.getFullYear() };
+  });
+  // List is the default view; the choice is remembered per browser.
+  const [view, setView] = useState(() => {
+    try { return localStorage.getItem(VIEW_KEY) === "grid" ? "grid" : "list"; }
+    catch { return "list"; }
+  });
+  const setViewPersisted = (v) => {
+    setView(v);
+    try { localStorage.setItem(VIEW_KEY, v); } catch { /* private mode */ }
+  };
 
   const onChanged = (res) => {
     const sub = res.submission || res;
     setSelected((s) => (s ? { ...s, ...sub, _last_summary: res.summary } : s));
     refetch();
   };
+
+  const inScope = useMemo(() => {
+    if (!period) return list;
+    return list.filter(
+      (s) => Number(s.month) === Number(period.month) && Number(s.year) === Number(period.year),
+    );
+  }, [list, period]);
+
+  // How many months are hidden by the scope — shown as a nudge so nobody
+  // thinks a submission disappeared.
+  const outOfScope = list.length - inScope.length;
+
+  const counts = useMemo(() => {
+    const c = { ALL: inScope.length, SUBMITTED: 0, DRAFT: 0, APPROVED: 0, REJECTED: 0, pending: 0 };
+    inScope.forEach((s) => {
+      if (c[s.status] !== undefined) c[s.status] += 1;
+      c.pending += Number(s.pending_item_count || 0);
+    });
+    return c;
+  }, [inScope]);
+
+  // Newest month first, and anything awaiting review floats to the top —
+  // that's the queue staff actually work from.
+  const visible = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return inScope
+      .filter((s) => (filter === "ALL" ? true : s.status === filter))
+      .filter((s) => (q ? String(s.client_name || `Client #${s.client}`).toLowerCase().includes(q) : true))
+      .sort((a, b) => {
+        const pri = (s) => (s.status === "SUBMITTED" ? 0 : 1);
+        if (pri(a) !== pri(b)) return pri(a) - pri(b);
+        return (b.year - a.year) || (b.month - a.month);
+      });
+  }, [inScope, filter, query]);
+
+  const toggle = (key) => setFilter((f) => (f === key ? "ALL" : key));
 
   return (
     <div className="payroll-scope p-4 space-y-6">
@@ -459,7 +1066,7 @@ export default function PortalSubmissions() {
       <PageHero
         eyebrow="Client Portal"
         title="Submissions"
-        subtitle="Review a client's monthly input, add any changes they emailed you, then Proceed straight to Batch Review — no Excel upload needed."
+        subtitle={`Review a client's monthly input, add any changes they emailed you, then Proceed straight to Batch Review — no Excel upload needed. Showing ${period ? monthLabel(period.month, period.year) : "every month"}.`}
       />
 
       {isLoading ? (
@@ -471,32 +1078,113 @@ export default function PortalSubmissions() {
           <EmptyState emoji="📥" message="No submissions yet. Clients see this screen once they submit their first month." />
         </Card>
       ) : (
-        <Card className="divide-y" style={{ borderColor: "var(--border-3)" }}>
-          {list.map((s) => (
-            <div key={s.id} className="flex items-center gap-4 px-4 py-3 cursor-pointer hover:opacity-90" onClick={() => setSelected(s)}>
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg" style={{ background: "var(--surface-3)" }}>
-                <Inbox size={18} style={{ color: "var(--text-muted)" }} />
+        <>
+          {/* ── at-a-glance queue ─────────────────────────────────────── */}
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <StatTile
+              icon={Clock} tone="amber" label="Awaiting your review" value={counts.SUBMITTED}
+              active={filter === "SUBMITTED"} onClick={() => toggle("SUBMITTED")}
+            />
+            <StatTile
+              icon={AlertCircle} tone="blue" label="Changes not applied yet" value={counts.pending}
+            />
+            <StatTile
+              icon={CheckCircle2} tone="green" label="Approved months" value={counts.APPROVED}
+              active={filter === "APPROVED"} onClick={() => toggle("APPROVED")}
+            />
+            <StatTile
+              icon={Inbox} tone="slate"
+              label={period ? "Clients this month" : "Months in the portal"}
+              value={counts.ALL}
+              active={filter === "ALL"} onClick={() => setFilter("ALL")}
+            />
+          </div>
+
+          {/* ── filters + search ──────────────────────────────────────── */}
+          <div className="flex flex-wrap items-center gap-2">
+            {FILTERS.map((f) => {
+              const active = filter === f.key;
+              return (
+                <button
+                  key={f.key}
+                  type="button"
+                  onClick={() => setFilter(f.key)}
+                  className="rounded-full px-3 py-1.5 text-xs font-medium transition-colors"
+                  style={{
+                    background: active ? "#001F5B" : "var(--surface-1)",
+                    color: active ? "var(--text-white)" : "var(--text-secondary)",
+                    border: `1px solid ${active ? "#001F5B" : "var(--border-3)"}`,
+                  }}
+                >
+                  {f.label}
+                  <span style={{ opacity: 0.7 }}> · {f.key === "ALL" ? counts.ALL : counts[f.key]}</span>
+                </button>
+              );
+            })}
+            <div className="ml-auto flex items-center gap-2">
+              <div className="relative" style={{ minWidth: 200 }}>
+                <Search
+                  size={14}
+                  style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "var(--text-subtle)" }}
+                />
+                <Input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search client…"
+                  style={{ paddingLeft: 30 }}
+                />
               </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium" style={{ color: "var(--text-strong)" }}>{s.client_name || `Client #${s.client}`}</span>
-                  <Badge tone={STATUS_TONES[s.status] || "slate"}>{s.status}</Badge>
-                  {s.approved_at && s.status !== "SUBMITTED" && <Badge tone="green">✓ approved</Badge>}
-                </div>
-                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                  {String(s.month).padStart(2, "0")}/{s.year} · {s.item_count} item{s.item_count === 1 ? "" : "s"}
-                  {s.approved_at ? ` · last approved ${new Date(s.approved_at).toLocaleDateString()}` : ""}
-                </p>
-                {s.note_preview && (
-                  <p className="text-xs mt-0.5 truncate" style={{ color: "var(--amber-text)" }} title={s.note_preview}>
-                    📝 {s.note_preview}
-                  </p>
-                )}
-              </div>
-              <ChevronRight size={16} style={{ color: "var(--text-subtle)" }} className="shrink-0" />
+              <MonthScope period={period} onChange={setPeriod} onClear={() => setPeriod(null)} />
+              <ViewToggle view={view} onChange={setViewPersisted} />
             </div>
-          ))}
-        </Card>
+          </div>
+
+          {/* ── the queue ─────────────────────────────────────────────── */}
+          {visible.length === 0 ? (
+            <Card className="p-5">
+              <EmptyState
+                emoji={period ? "🗓️" : "🔍"}
+                message={
+                  period
+                    ? `No submissions for ${monthLabel(period.month, period.year)}${filter === "ALL" && !query.trim() ? "" : " matching this filter"}.`
+                    : "No submissions match this filter."
+                }
+              />
+              {period && outOfScope > 0 && (
+                <div className="flex justify-center pt-3">
+                  <Button variant="secondary" size="sm" onClick={() => setPeriod(null)}>
+                    <CalendarDays size={14} /> Show all months ({outOfScope} other{outOfScope === 1 ? "" : "s"})
+                  </Button>
+                </div>
+              )}
+            </Card>
+          ) : view === "grid" ? (
+            <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
+              {visible.map((s) => (
+                <SubmissionCard key={s.id} s={s} onOpen={() => setSelected(s)} />
+              ))}
+            </div>
+          ) : (
+            <Card className="divide-y overflow-hidden" style={{ borderColor: "var(--border-2)", padding: 0 }}>
+              {visible.map((s) => (
+                <SubmissionRow key={s.id} s={s} onOpen={() => setSelected(s)} />
+              ))}
+            </Card>
+          )}
+
+          {period && outOfScope > 0 && visible.length > 0 && (
+            <p className="text-center text-xs" style={{ color: "var(--text-muted)" }}>
+              {outOfScope} submission{outOfScope === 1 ? "" : "s"} in other months are hidden ·{" "}
+              <button
+                type="button"
+                onClick={() => setPeriod(null)}
+                style={{ color: "var(--blue-text)", fontWeight: 600 }}
+              >
+                show all months
+              </button>
+            </p>
+          )}
+        </>
       )}
 
       {selected && (

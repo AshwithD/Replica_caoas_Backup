@@ -3,6 +3,7 @@
 from rest_framework import serializers
 
 from ..models import PortalUser
+from .submissions import client_logo_url
 
 
 class PortalUserAdminSerializer(serializers.ModelSerializer):
@@ -11,14 +12,18 @@ class PortalUserAdminSerializer(serializers.ModelSerializer):
         help_text="Set on create (required) or to reset the password on update.",
     )
     client_name = serializers.CharField(source="client.name", read_only=True)
+    client_logo = serializers.SerializerMethodField()
 
     class Meta:
         model = PortalUser
         fields = [
-            "id", "email", "client", "client_name", "role", "is_active",
+            "id", "email", "client", "client_name", "client_logo", "role", "is_active",
             "must_change_password", "password", "last_login", "created_at", "updated_at",
         ]
         read_only_fields = ["last_login", "created_at", "updated_at"]
+
+    def get_client_logo(self, obj):
+        return client_logo_url(obj.client, self.context.get("request"))
 
     def validate_email(self, value):
         return value.strip().lower()

@@ -339,7 +339,7 @@ def apply_item(item, approved_by):
         return True
 
 
-def apply_submission(submission, approved_by):
+def apply_submission(submission, approved_by, allow_unsubmitted=False):
     """
     Applies every non-applied item of a submitted month.
 
@@ -355,10 +355,24 @@ def apply_submission(submission, approved_by):
     regardless, so the client can correct and resubmit without you having to
     reject first. approved_by/approved_at always record the last approval.
     """
-    if submission.status not in (
+    # `allow_unsubmitted` is used by the staff-side "apply pending changes"
+    # action: a month reopens to DRAFT after every approval, so items the
+    # client added afterwards (or keyed in by staff) can sit unapplied in a
+    # DRAFT month with no way to approve them. Staff members are the
+    # approvers, so they may apply those directly.
+    #
+    # REJECTED is deliberately NOT in that list: you returned the month
+    # precisely because the values were wrong, so bulk-applying the same
+    # items afterwards would push the rejected data into payroll. A rejected
+    # month waits for the client's corrected resubmission (or for staff to
+    # skip/fix the individual items).
+    allowed = [
         PortalSubmission.STATUS_SUBMITTED,
         PortalSubmission.STATUS_APPROVED,
-    ):
+    ]
+    if allow_unsubmitted:
+        allowed.append(PortalSubmission.STATUS_DRAFT)
+    if submission.status not in allowed:
         raise ValueError("Only submitted submissions can be applied.")
 
     summary = {"applied": 0, "failed": 0, "skipped": 0}

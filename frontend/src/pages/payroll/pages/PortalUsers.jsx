@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, ShieldCheck, Pencil, Trash2, KeyRound } from "lucide-react";
+import { Plus, Pencil, Trash2 } from "lucide-react";
 import {
   Badge, Button, Card, ErrorState, Input, Modal, Skeleton,
 } from "../_kit/components/primitives";
@@ -9,6 +9,7 @@ import { api } from "../_kit/api/client";
 import PageHero from "../_kit/components/PageHero";
 import Breadcrumb from "../_kit/components/Breadcrumb";
 import EmptyState from "../_kit/components/EmptyState";
+import ClientLogo from "../_kit/components/ClientLogo";
 
 const ROLE_LABELS = { editor: "Editor", client_admin: "Client Admin" };
 const ROLE_TONES = { editor: "blue", client_admin: "purple" };
@@ -83,8 +84,23 @@ function PortalUserModal({ user, clients, onClose, onSaved }) {
     </div>
   );
 
+  const selectedClient = clients.find((c) => String(c.id) === String(form.client));
+  const title = (
+    <span className="flex items-center gap-3">
+      <ClientLogo name={selectedClient?.name} logo={selectedClient?.logo || user?.client_logo} size={34} />
+      <span>
+        <span className="block text-base font-semibold" style={{ color: "var(--text-strong)" }}>
+          {user ? "Edit Portal User" : "New Portal User"}
+        </span>
+        <span className="block text-xs font-normal" style={{ color: "var(--text-muted)" }}>
+          {selectedClient?.name || user?.client_name || "Pick the client this login belongs to"}
+        </span>
+      </span>
+    </span>
+  );
+
   return (
-    <Modal title={user ? "Edit Portal User" : "New Portal User"} onClose={onClose} size="m">
+    <Modal title={title} onClose={onClose} size="m">
       <div className="space-y-4">
         <div className="grid gap-3 md:grid-cols-2">
           {field("Email", (
@@ -145,6 +161,9 @@ export default function PortalUsers() {
   const clientsQuery = useClients();
   const clients = Array.isArray(clientsQuery.data) ? clientsQuery.data : clientsQuery.data?.results || [];
   const list = Array.isArray(users) ? users : users?.results || [];
+  // payroll/clients/ carries the uploaded logo; keyed by id so a row can brand
+  // itself even if the portal-user payload predates the client_logo field.
+  const clientById = Object.fromEntries(clients.map((c) => [String(c.id), c]));
   const [modal, setModal] = useState(undefined); // undefined = closed, null = new
   const [busyId, setBusyId] = useState(null);
 
@@ -191,9 +210,14 @@ export default function PortalUsers() {
         <Card className="divide-y" style={{ borderColor: "var(--border-3)" }}>
           {list.map((u) => (
             <div key={u.id} className="flex items-center gap-4 px-4 py-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg" style={{ background: "var(--surface-3)" }}>
-                <ShieldCheck size={18} style={{ color: "var(--text-muted)" }} />
-              </div>
+              {/* the client's own logo (payroll_logo), so a freshly created
+                  login is recognisable instead of showing a placeholder icon;
+                  clients without a logo fall back to their initials */}
+              <ClientLogo
+                name={u.client_name || clientById[String(u.client)]?.name}
+                logo={u.client_logo || clientById[String(u.client)]?.logo}
+                size={40}
+              />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium truncate" style={{ color: "var(--text-strong)" }}>{u.email}</span>

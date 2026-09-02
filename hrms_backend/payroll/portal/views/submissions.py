@@ -6,10 +6,25 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from ..locks import submission_lock
 from ..models import PortalSubmission, PortalSubmissionEvent, PortalSubmissionItem
 from ..serializers import PortalSubmissionItemSerializer, PortalSubmissionSerializer
 from ..services import record_event
 from .base import PortalScopeBase
+
+
+def assert_month_open(submission):
+    """Block every client-side write once payslips exist for the month.
+
+    A generated payslip is already in the employee's hands, so a change added
+    afterwards could never be reflected in it — staging one would only make
+    the portal disagree with the payslip. Staff can still correct the month
+    and regenerate the batch from Batch Review.
+    """
+    lock = submission_lock(submission)
+    if lock["locked"]:
+        raise ValidationError({"detail": lock["reason"], "payroll_lock": lock})
+    return lock
 
 
 class PortalSubmissionListCreateView(PortalScopeBase, generics.ListCreateAPIView):
@@ -48,6 +63,7 @@ class PortalSubmissionListCreateView(PortalScopeBase, generics.ListCreateAPIView
 class PortalSubmissionSubmitView(PortalScopeBase, APIView):
     def post(self, request, pk):
         submission = self._get_submission(pk)
+        assert_month_open(submission)
         if submission.status not in PortalSubmission.EDITABLE_STATUSES:
             raise ValidationError(
                 {"detail": "Only draft or rejected submissions can be submitted."}
@@ -95,6 +111,7 @@ class PortalSubmissionNotesView(PortalScopeBase, APIView):
         ).first()
         if submission is None:
             raise PermissionDenied("Submission not found.")
+        assert_month_open(submission)
         if submission.status not in PortalSubmission.EDITABLE_STATUSES:
             raise ValidationError(
                 {"detail": "This submission is locked and its notes can't be changed."}
@@ -120,6 +137,7 @@ class PortalItemListCreateView(PortalScopeBase, generics.ListCreateAPIView):
 
     def perform_create(self, serializer):
         submission = self.get_submission()
+        assert_month_open(submission)
         if submission.status not in PortalSubmission.EDITABLE_STATUSES:
             raise ValidationError(
                 {"detail": "This submission is locked. Only draft or rejected submissions can be edited."}
@@ -146,6 +164,7 @@ class PortalItemDetailView(PortalScopeBase, generics.RetrieveUpdateDestroyAPIVie
         return item
 
     def _ensure_editable(self, item):
+        assert_month_open(item.submission)
         if item.submission.status not in PortalSubmission.EDITABLE_STATUSES:
             raise ValidationError(
                 {"detail": "This submission is locked. Only draft or rejected submissions can be edited."}

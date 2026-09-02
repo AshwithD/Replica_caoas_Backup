@@ -1,24 +1,16 @@
 import React, { useState } from "react";
+import {
+  Eye, EyeOff, IndianRupee, Info, Lock, LogIn, Mail, ShieldCheck, UserMinus, Users,
+} from "lucide-react";
 import { api, setSession } from "./api";
-import { Button, ErrorBanner, Field, TextInput } from "./ui";
+import { Button, ErrorBanner } from "./ui";
 
-const EyeIcon = () => (
-  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
-    <circle cx="12" cy="12" r="3" />
-  </svg>
-);
-
-const EyeOffIcon = () => (
-  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c6.5 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" />
-    <path d="M6.61 6.61A13.53 13.53 0 0 0 2 12s3.5 7 10 7a9.74 9.74 0 0 0 5.39-1.61" />
-    <path d="M2 2l20 20" />
-    <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24" />
-  </svg>
-);
+const POINTS = [
+  { icon: Users, label: "Joiners & salary revisions" },
+  { icon: UserMinus, label: "Exits & salary holds" },
+  { icon: IndianRupee, label: "Advances & one-off items" },
+  { icon: ShieldCheck, label: "Secure & trusted by your payroll team" },
+];
 
 export default function Login({ onLogin }) {
   const [email, setEmail] = useState("");
@@ -26,6 +18,9 @@ export default function Login({ onLogin }) {
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // "Forgot password?" has no self-service reset — the payroll team resets it.
+  // Clicking it highlights the help panel instead of leading to a dead end.
+  const [helpFlash, setHelpFlash] = useState(false);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -42,75 +37,135 @@ export default function Login({ onLogin }) {
     }
   };
 
+  const flashHelp = () => {
+    setHelpFlash(false);
+    // restart the animation on repeat clicks
+    requestAnimationFrame(() => setHelpFlash(true));
+  };
+
   return (
     <div className="auth-screen">
-      <div className="auth-card">
-        <aside className="auth-panel">
-          <div className="auth-brand">
-            <div className="brand-mark">CK</div>
-            <div className="auth-brand-name">Payroll Portal</div>
-            <div className="auth-brand-sub">C K Partha Sarathy &amp; Co</div>
-          </div>
+      <div className="auth-shell">
+        <div className="auth-card">
+          {/* ── brand panel ── */}
+          <aside className="auth-panel">
+            <div className="auth-wave" aria-hidden="true">
+              <svg viewBox="0 0 520 260" preserveAspectRatio="none">
+                {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+                  <path
+                    key={i}
+                    d={`M-20 ${150 + i * 16} C 120 ${90 + i * 14}, 300 ${230 + i * 10}, 540 ${120 + i * 18}`}
+                    fill="none"
+                    stroke="rgba(120, 175, 255, 0.35)"
+                    strokeWidth="1"
+                  />
+                ))}
+              </svg>
+            </div>
 
-          <p className="auth-tagline">
-            Submit your monthly payroll input to your payroll team — quickly and securely.
-          </p>
+            <div className="auth-panel-inner">
+              <div className="auth-brand">
+                <div className="auth-mark">CK</div>
+                <div className="auth-brand-name">C K Partha Sarathy &amp; Co</div>
+                <div className="auth-brand-sub">Payroll Portal</div>
+              </div>
 
-          <ul className="auth-points">
-            <li>Joiners &amp; salary revisions</li>
-            <li>Exits &amp; salary holds</li>
-            <li>Advances &amp; one-off items</li>
-          </ul>
+              <span className="auth-rule" />
 
-          <div className="auth-foot">© {new Date().getFullYear()} C K Partha Sarathy &amp; Co</div>
-        </aside>
+              <h2 className="auth-tagline">
+                Submit your monthly payroll input to your payroll team
+              </h2>
+              <p className="auth-tagline-sub">Quickly, securely and with complete confidence.</p>
 
-        <div className="auth-form">
-          <h1 className="auth-title">Welcome back</h1>
-          <p className="auth-sub">Sign in with the credentials provided by your payroll team.</p>
+              <ul className="auth-points">
+                {POINTS.map(({ icon: Icon, label }) => (
+                  <li key={label}>
+                    <span className="auth-point-ico"><Icon size={16} /></span>
+                    <span>{label}</span>
+                  </li>
+                ))}
+              </ul>
 
-          <form onSubmit={submit} className="grid" style={{ gap: 14 }}>
-            <Field label="Email">
-              <TextInput
-                type="email"
-                autoFocus
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@company.com"
-                autoComplete="username"
-              />
-            </Field>
+              <div className="auth-secure">
+                <Lock size={14} /> Your data is secure and confidential
+              </div>
+            </div>
+          </aside>
 
-            <Field label="Password">
-              <div className="pw-wrap">
-                <input
-                  className="control"
-                  type={showPw ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  autoComplete="current-password"
-                />
-                <button
-                  type="button"
-                  className="pw-toggle"
-                  onClick={() => setShowPw((s) => !s)}
-                  aria-label={showPw ? "Hide password" : "Show password"}
-                  tabIndex={-1}
-                >
-                  {showPw ? <EyeOffIcon /> : <EyeIcon />}
+          {/* ── sign-in form ── */}
+          <div className="auth-form">
+            <h1 className="auth-title">Welcome back!</h1>
+            <p className="auth-sub">Sign in with the credentials provided by your payroll team.</p>
+
+            <form onSubmit={submit} className="auth-fields">
+              <label className="auth-field">
+                <span className="auth-label">Email</span>
+                <span className="auth-input">
+                  <Mail size={17} className="auth-input-ico" />
+                  <input
+                    type="email"
+                    autoFocus
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="you@company.com"
+                    autoComplete="username"
+                  />
+                </span>
+              </label>
+
+              <label className="auth-field">
+                <span className="auth-label">Password</span>
+                <span className="auth-input">
+                  <Lock size={17} className="auth-input-ico" />
+                  <input
+                    type={showPw ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    autoComplete="current-password"
+                  />
+                  <button
+                    type="button"
+                    className="auth-eye"
+                    onClick={() => setShowPw((s) => !s)}
+                    aria-label={showPw ? "Hide password" : "Show password"}
+                    tabIndex={-1}
+                  >
+                    {showPw ? <EyeOff size={17} /> : <Eye size={17} />}
+                  </button>
+                </span>
+              </label>
+
+              <div className="auth-row">
+                <span className="auth-note-inline">
+                  <Lock size={12} /> You're signed out when the browser closes.
+                </span>
+                <button type="button" className="auth-link" onClick={flashHelp}>
+                  Forgot password?
                 </button>
               </div>
-            </Field>
 
-            <ErrorBanner message={error} />
+              <ErrorBanner message={error} />
 
-            <Button type="submit" disabled={busy} className="btn-block">
-              {busy ? "Signing in…" : "Sign in"}
-            </Button>
+              <Button type="submit" disabled={busy} className="btn-block btn-lg auth-submit">
+                <LogIn size={17} /> {busy ? "Signing in…" : "Sign in"}
+              </Button>
+            </form>
 
-            <p className="auth-note">You'll be signed out automatically when you close the browser.</p>
-          </form>
+            <div className={`auth-help ${helpFlash ? "flash" : ""}`}>
+              <Info size={16} />
+              <div>
+                <div className="auth-help-title">Need help?</div>
+                <div className="auth-help-text">
+                  Contact your payroll team if you're unable to access your account.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="auth-copy">
+          © {new Date().getFullYear()} C K Partha Sarathy &amp; Co. All rights reserved.
         </div>
       </div>
     </div>

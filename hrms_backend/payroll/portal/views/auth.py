@@ -39,7 +39,10 @@ class PortalLoginView(APIView):
         user.save(update_fields=["last_login"])
 
         return Response(
-            {"token": token, "user": PortalUserSelfSerializer(user).data}
+            {
+                "token": token,
+                "user": PortalUserSelfSerializer(user, context={"request": request}).data,
+            }
         )
 
 
@@ -51,7 +54,9 @@ class PortalLogoutView(PortalScopeBase, APIView):
 
 class PortalMeView(PortalScopeBase, APIView):
     def get(self, request):
-        return Response(PortalUserSelfSerializer(request.user).data)
+        return Response(
+            PortalUserSelfSerializer(request.user, context={"request": request}).data
+        )
 
 
 class PortalChangePasswordView(PortalScopeBase, APIView):
@@ -68,5 +73,5 @@ class PortalChangePasswordView(PortalScopeBase, APIView):
         token = issue_token(user)
         return Response(
             {"detail": "Password changed.", "token": token,
-             "user": PortalUserSelfSerializer(user).data}
+             "user": PortalUserSelfSerializer(user, context={"request": request}).data}
         )
