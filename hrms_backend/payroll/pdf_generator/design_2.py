@@ -24,6 +24,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
 from ..models import PayslipRecord
+from .text_fit import draw_block, draw_fitted
 
 try:
     from PIL import Image as PILImage
@@ -229,20 +230,23 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:
 
     if not drawn_logo:
         client_name = (client.name or 'COMPANY').strip()
-        c.setFont(_BOLD, 24)
+        # Auto-shrunk to the sidebar's inner width so a very long client
+        # name wraps/scales instead of bleeding past the sidebar edge.
         c.setFillColor(colors.HexColor('#007cc3'))
-        c.drawString(sx, y, client_name)
-        # Accent bar under logo
+        # The block returns its own bottom baseline, so the accent bar and
+        # everything after it follow the real height of the wrapped name
+        # instead of a fixed 9mm step (which used to strike through line 2).
+        y = draw_block(c, sx, y, client_name, _BOLD, 24, inner_w,
+                       max_lines=3, min_size=11)
         c.setStrokeColor(colors.HexColor('#007cc3'))
         c.setLineWidth(2.5)
-        c.line(sx, y - 4 * mm, sx + 22 * mm, y - 4 * mm)
-        y -= 9 * mm
+        c.line(sx, y + 1.5 * mm, sx + 22 * mm, y + 1.5 * mm)
+        y -= 3 * mm
 
     # Address / Subtitle
-    address_line = (client.address or 'CORPORATE OFFICE').splitlines()[0].upper()
-    c.setFont(_BOLD, 7)
+    address_text = (client.address or 'CORPORATE OFFICE').upper()
     c.setFillColor(colors.HexColor(SIDEBAR_MUTED))
-    c.drawString(sx, y - 1 * mm, address_line)
+    draw_block(c, sx, y - 1 * mm, address_text, _BOLD, 7, inner_w, max_lines=3, min_size=5.6)
 
     # Employee Section
     y -= 19 * mm
@@ -251,20 +255,19 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:
     c.drawString(sx, y, "E M P L O Y E E")
 
     y -= 7.5 * mm
-    c.setFont(_BOLD, 17.5)
     c.setFillColor(colors.white)
-    c.drawString(sx, y, employee.full_name or '—')
+    y = draw_block(c, sx, y, employee.full_name or '—', _BOLD, 17.5, inner_w,
+                   max_lines=2, min_size=10) + 17.5 * 1.25
 
     y -= 5.5 * mm
-    c.setFont(_FONT, 9.5)
     c.setFillColor(colors.HexColor(SIDEBAR_SUBTITLE))
-    c.drawString(sx, y, employee.position or '—')
+    draw_fitted(c, sx, y, employee.position or '—', _FONT, 9.5, inner_w, min_size=7)
 
     y -= 4.8 * mm
     c.setFont(_FONT, 8.8)
     c.setFillColor(colors.HexColor(SIDEBAR_SUBTITLE))
     dept = employee.department or '—'
-    c.drawString(sx, y, f"Department - {dept}")
+    draw_fitted(c, sx, y, f"Department - {dept}", _FONT, 8.8, inner_w, min_size=6.5)
 
     # Employee Metadata Rows
     meta_rows = [
@@ -279,10 +282,12 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:
     for label, val in meta_rows:
         c.setFont(_BOLD, 7)
         c.setFillColor(colors.HexColor(SIDEBAR_MUTED))
+        label_w = c.stringWidth(label, _BOLD, 7)
         c.drawString(sx, y, label)
-        c.setFont(_BOLD, 8.5)
         c.setFillColor(colors.white)
-        c.drawRightString(sw - sx, y, str(val))
+        # Right-aligned value, fitted to whatever room the label leaves.
+        draw_fitted(c, sw - sx, y, str(val), _BOLD, 8.5,
+                    inner_w - label_w - 3 * mm, min_size=6, align='right')
         y -= 7.8 * mm
 
     # Net Take-Home Card at Bottom of Sidebar

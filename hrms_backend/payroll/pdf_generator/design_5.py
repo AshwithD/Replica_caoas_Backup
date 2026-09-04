@@ -28,6 +28,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
 from ..models import PayslipRecord
+from .text_fit import draw_block, draw_fitted
 
 try:
     from PIL import Image as PILImage
@@ -348,9 +349,10 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:
 
     if not drawn_logo:
         client_name = (client.name or 'COMPANY').strip()
-        c.setFont(_BOLD, 20)
         c.setFillColor(colors.HexColor('#007cc3'))
-        c.drawString(margin + 6 * mm, logo_y - 8 * mm, client_name)
+        # 48mm is where the vertical divider sits — never draw past it.
+        draw_block(c, margin + 6 * mm, logo_y - 6 * mm, client_name, _BOLD, 20,
+                   38 * mm, max_lines=4, min_size=7.5, leading_ratio=1.15)
         lh = 10 * mm
 
     # Vertical Divider Line (only if we have logo or name)
@@ -360,16 +362,15 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:
     c.line(div_x, header_y + 4 * mm, div_x, header_top - 4 * mm)
 
     # Address - dynamically from client.address, no hardcoded tagline
-    address_lines = (client.address or '').splitlines()
-    if not address_lines:
-        address_lines = [client.address or '']
-    c.setFont(_FONT, 7.8)
+    # Word-wrapped into the space between the divider and the right-hand
+    # SALARY SLIP block — no more [:50] hard slicing mid-word.
     c.setFillColor(colors.HexColor(SLATE_MUTED))
-    # Show up to 2 lines of address
-    if address_lines:
-        c.drawString(div_x + 5 * mm, header_top - 12 * mm, address_lines[0][:50])
-    if len(address_lines) > 1 and address_lines[1].strip():
-        c.drawString(div_x + 5 * mm, header_top - 16.5 * mm, address_lines[1][:50])
+    addr_w = (W - margin - 34 * mm) - (div_x + 5 * mm)
+    # single_line_ratio=0.95: prefer wrapping to 2-3 readable lines rather than
+    # squeezing a long address onto one tiny 5pt line.
+    draw_block(c, div_x + 5 * mm, header_top - 11 * mm, (client.address or ''),
+               _FONT, 7.8, addr_w, max_lines=3, min_size=6.0,
+               leading_ratio=1.2, single_line_ratio=0.95)
 
     # Right: SALARY SLIP & Month Button
     c.setFont(_BOLD, 7.5)
@@ -447,23 +448,20 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:
         c.setFont(_BOLD, 6.5)
         c.setFillColor(colors.HexColor(SLATE_MUTED))
         c.drawString(col1_x, r_y, l1)
-        c.setFont(_BOLD, 8.5)
         c.setFillColor(colors.HexColor(TEXT_MAIN))
-        c.drawString(col1_x, r_y - 4.5 * mm, str(v1))
+        draw_fitted(c, col1_x, r_y - 4.5 * mm, str(v1), _BOLD, 8.5, col_w - 5 * mm, min_size=6)
 
         c.setFont(_BOLD, 6.5)
         c.setFillColor(colors.HexColor(SLATE_MUTED))
         c.drawString(col2_x, r_y, l2)
-        c.setFont(_BOLD, 8.5)
         c.setFillColor(colors.HexColor(TEXT_MAIN))
-        c.drawString(col2_x, r_y - 4.5 * mm, str(v2))
+        draw_fitted(c, col2_x, r_y - 4.5 * mm, str(v2), _BOLD, 8.5, col_w - 5 * mm, min_size=6)
 
         c.setFont(_BOLD, 6.5)
         c.setFillColor(colors.HexColor(SLATE_MUTED))
         c.drawString(col3_x, r_y, l3)
-        c.setFont(_BOLD, 8.5)
         c.setFillColor(colors.HexColor(TEXT_MAIN))
-        c.drawString(col3_x, r_y - 4.5 * mm, str(v3))
+        draw_fitted(c, col3_x, r_y - 4.5 * mm, str(v3), _BOLD, 8.5, col_w - 5 * mm, min_size=6)
 
         r_y -= step_y
 

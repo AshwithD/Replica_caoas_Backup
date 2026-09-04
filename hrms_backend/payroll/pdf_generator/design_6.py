@@ -32,6 +32,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
 from ..models import PayslipRecord
+from .text_fit import draw_block, draw_fitted
 
 try:
     from PIL import Image as PILImage
@@ -329,24 +330,33 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:
 
     if not drawn_logo:
         client_name = (client.name or 'COMPANY').strip()
-        c.setFont(_BOLD, 20)
         c.setFillColor(colors.HexColor('#2d6a4f'))
-        c.drawString(14 * mm, logo_y - 2 * mm, client_name)
+        # div_x (62mm) is the divider — the name block stops before it.
+        draw_block(c, 14 * mm, logo_y, client_name, _BOLD, 20,
+                   44 * mm, max_lines=4, min_size=7.5, leading_ratio=1.15)
 
     div_x = 62 * mm
     c.setStrokeColor(colors.HexColor('#e2d5c0'))
     c.setLineWidth(0.6)
     c.line(div_x, logo_y - 10 * mm, div_x, logo_y + 6 * mm)
 
-    c.setFont(_BOLD, 9.5)
     c.setFillColor(colors.HexColor('#5a4a3a'))
-    c.drawString(div_x + 6 * mm, logo_y + 2 * mm, (client.name or 'INFOSYS').upper())
+    # The dark decorative panel occupies the right ~35% of the header, so the
+    # centre column must stop before it — otherwise long names/addresses run
+    # underneath it and become unreadable.
+    _hdr_w = (W * 0.63) - (div_x + 6 * mm)
+    # Wrap instead of ellipsize, and let the address follow the name's real
+    # bottom so a 2-line name never overlaps it.
+    name_bottom = draw_block(c, div_x + 6 * mm, logo_y + 3 * mm,
+                             (client.name or 'INFOSYS').upper(), _BOLD, 9.5, _hdr_w,
+                             max_lines=2, min_size=6.5, leading_ratio=1.15)
 
-    _draw_icon(c, 'map-pin', div_x + 5.5 * mm, logo_y - 6.5 * mm, 3.8 * mm, '#5a4a3a')
-    address_line = (client.address or 'Banashankari, Bangalore').splitlines()[0]
-    c.setFont(_FONT, 7.8)
+    addr_y = min(logo_y - 5.5 * mm, name_bottom - 0.5 * mm)
+    _draw_icon(c, 'map-pin', div_x + 5.5 * mm, addr_y - 1 * mm, 3.8 * mm, '#5a4a3a')
     c.setFillColor(colors.HexColor('#6b5a4a'))
-    c.drawString(div_x + 10 * mm, logo_y - 5.5 * mm, address_line)
+    draw_block(c, div_x + 10 * mm, addr_y,
+               (client.address or 'Banashankari, Bangalore'), _FONT, 7.8,
+               _hdr_w - 4 * mm, max_lines=2, min_size=6.0, leading_ratio=1.2)
 
     # ===== EMPLOYEE DETAILS CARD =====
     card1_top = H - 42 * mm
@@ -423,9 +433,10 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:
         c.setFont(_FONT, 7.5)
         c.setFillColor(colors.HexColor('#4a5568'))
         c.drawString(col1_x + 8.5 * mm, r_y, l1)
-        c.setFont(_BOLD, 7.8)
+        # Fitted instead of the old [:22] hard slice (which cut names mid-word).
         c.setFillColor(colors.HexColor(TEXT_MAIN))
-        c.drawString(col1_x + 34 * mm, r_y, str(v1)[:22])
+        draw_block(c, col1_x + 32 * mm, r_y, str(v1), _BOLD, 7.8,
+                   half_w - 36 * mm, max_lines=2, min_size=5.8, leading_ratio=1.05)
 
         # Col2
         c.saveState()
@@ -439,9 +450,9 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:
         c.setFont(_FONT, 7.5)
         c.setFillColor(colors.HexColor('#4a5568'))
         c.drawString(col2_x + 8.5 * mm, r_y, l2)
-        c.setFont(_BOLD, 7.8)
         c.setFillColor(colors.HexColor(TEXT_MAIN))
-        c.drawString(col2_x + 34 * mm, r_y, str(v2)[:22])
+        draw_block(c, col2_x + 32 * mm, r_y, str(v2), _BOLD, 7.8,
+                   half_w - 36 * mm, max_lines=2, min_size=5.8, leading_ratio=1.05)
 
         r_y -= step_y
 

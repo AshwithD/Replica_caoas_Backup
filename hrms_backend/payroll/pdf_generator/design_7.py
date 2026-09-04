@@ -24,6 +24,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
 from ..models import PayslipRecord
+from .text_fit import draw_block, draw_fitted
 
 try:
     from PIL import Image as PILImage
@@ -402,23 +403,39 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:
 
     if not drawn_logo:
         client_name = (client.name or 'INFOSYS').strip()
-        c.setFont(_BOLD, 20)
         c.setFillColor(colors.white)
-        c.drawString(margin + 5 * mm, logo_y - 2 * mm, client_name)
+        # Constrained to the coloured left panel: at most 3 lines, so a long
+        # name can never spill below the panel's bottom edge.
+        draw_block(c, margin + 5 * mm, logo_y - 1 * mm, client_name, _BOLD, 20,
+                   42 * mm, max_lines=3, min_size=7.5, leading_ratio=1.12)
 
     # Vertical divider REMOVED per user request - no line
     div_x = margin + 50 * mm
 
     # Client Title & Address next to divider
-    c.setFont(_BOLD, 9)
     c.setFillColor(colors.HexColor(TEXT_MAIN))
-    c.drawString(div_x + 6 * mm, header_top - 11 * mm, (client.name or 'INFOSYS').upper())
+    # Stop short of the right-hand SALARY SLIP / month block.
+    # Measure the actual right-hand block (SALARY SLIP / month) rather than
+    # guessing a fixed inset — that guess is what let long names collide.
+    _right_w = max(
+        c.stringWidth('SALARY SLIP', _BOLD, 13),
+        c.stringWidth(f'{calendar.month_name[batch.month].upper()} {batch.year}', _BOLD, 8.5),
+        30 * mm,
+    )
+    _hdr_w = (W - margin - 8 * mm - _right_w - 4 * mm) - (div_x + 6 * mm)
+    # Wrap onto a 2nd line rather than ellipsizing: the header band is 28mm
+    # tall, so name (2 lines) + address (2 lines) both fit with room to spare.
+    name_bottom = draw_block(c, div_x + 6 * mm, header_top - 9 * mm,
+                             (client.name or 'INFOSYS').upper(), _BOLD, 9, _hdr_w,
+                             max_lines=2, min_size=6.5, leading_ratio=1.15)
 
-    _draw_icon(c, 'map-pin', div_x + 5.5 * mm, header_top - 20 * mm, 4 * mm, '#4b5563')
-    address_line = (client.address or 'Banashankari, Bangalore').splitlines()[0]
-    c.setFont(_FONT, 7.8)
+    # Address follows the real bottom of the (possibly 2-line) name.
+    addr_y = min(header_top - 18.5 * mm, name_bottom - 0.5 * mm)
+    _draw_icon(c, 'map-pin', div_x + 5.5 * mm, addr_y - 1.5 * mm, 4 * mm, '#4b5563')
     c.setFillColor(colors.HexColor('#4b5563'))
-    c.drawString(div_x + 11 * mm, header_top - 18.5 * mm, address_line)
+    draw_block(c, div_x + 11 * mm, addr_y,
+               (client.address or 'Banashankari, Bangalore'), _FONT, 7.8,
+               _hdr_w - 5 * mm, max_lines=2, min_size=6.0, leading_ratio=1.2)
 
     # Right: SALARY SLIP & Month
     c.setFont(_BOLD, 13)
@@ -516,9 +533,11 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:
         c.setFont(_FONT, 7.8)
         c.setFillColor(colors.HexColor('#1e293b'))
         c.drawString(col1_x + 9 * mm, r_y, l1)
-        c.setFont(_BOLD, 7.8)
         c.setFillColor(colors.HexColor('#0f172a'))
-        c.drawString(col1_x + 38 * mm, r_y, str(v1)[:22])
+        # Value starts right after the label and may wrap to a 2nd line —
+        # the row step is 10.5mm, so a long name fits without truncation.
+        draw_block(c, col1_x + 34 * mm, r_y, str(v1), _BOLD, 7.8,
+                   half_w - 37 * mm, max_lines=2, min_size=5.8, leading_ratio=1.1)
 
         # Col 2 icon tile - reference light lavender
         c.saveState()
@@ -532,8 +551,8 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:
         c.setFont(_FONT, 8)
         c.setFillColor(colors.HexColor(TEXT_MAIN))
         c.drawString(col2_x + 9 * mm, r_y, l2)
-        c.setFont(_BOLD, 8)
-        c.drawString(col2_x + 42 * mm, r_y, str(v2))
+        draw_block(c, col2_x + 34 * mm, r_y, str(v2), _BOLD, 8,
+                   half_w - 37 * mm, max_lines=2, min_size=5.8, leading_ratio=1.1)
 
         # Divider line between rows
         c.setStrokeColor(colors.HexColor('#f1f5f9'))

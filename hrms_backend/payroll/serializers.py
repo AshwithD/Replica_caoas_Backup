@@ -436,14 +436,32 @@ class ClientSerializer(serializers.ModelSerializer):
     pdf_design = serializers.IntegerField(source="payroll_profile.pdf_design", required=False, default=1)
     pf_establishment_code = serializers.CharField(source="payroll_profile.pf_establishment_code", required=False, allow_null=True, allow_blank=True, default="")
 
+    # ── Effective payroll-active state ──────────────────────────────────
+    # `is_active` above is ONLY the payroll toggle (ClientProfile.
+    # payroll_is_active). The master `clients.Client.is_active` is a hard
+    # kill-switch on top of it (see ClientProfile.is_effectively_active):
+    # a client deactivated in the Client module must NOT count as an active
+    # payroll client even if payroll was switched on earlier. Both are
+    # exposed so the UI can filter on the effective value and still explain
+    # *why* a client is inactive.
+    master_is_active = serializers.BooleanField(source="is_active", read_only=True)
+    is_effectively_active = serializers.SerializerMethodField()
+
     class Meta:
         model = MasterClient
         fields = [
             "id", "name", "logo", "payroll_email", "address", "email", "phone",
             "pan", "tan", "gstin", "pf_establishment_code", "is_active",
+            "master_is_active", "is_effectively_active",
             "pdf_design", "created_at", "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = ["id", "master_is_active", "is_effectively_active",
+                            "created_at", "updated_at"]
+
+    def get_is_effectively_active(self, obj) -> bool:
+        """Master client active AND payroll switched on for it."""
+        profile = getattr(obj, "payroll_profile", None)
+        return bool(obj.is_active and profile and profile.payroll_is_active)
 
     @staticmethod
     def _split(validated_data):
@@ -512,12 +530,15 @@ class ClientSerializer(serializers.ModelSerializer):
         return client
 
     def update(self, instance, validated_data):
-        identity, profile = self._split(validated_data)
-        for field, value in identity.items():
-            if field == "email":
-                value = self._norm_email(value)
-            setattr(instance, field, value)
-        instance.save()
+        """Payroll may only edit the payroll-owned ClientProfile fields.
+
+        Client identity (name/email/phone/address/PAN/TAN/GSTIN) belongs to
+        the Client module's master `clients.Client` row — payroll inherits
+        it read-only (README §7.10). Any identity keys that arrive on an
+        update are therefore deliberately ignored rather than written, so
+        the payroll UI can never overwrite the Client module's master data.
+        """
+        _identity_ignored, profile = self._split(validated_data)
         if profile:
             # Lazily create the profile on first payroll-settings save — a
             # client added in the Client module has none yet.

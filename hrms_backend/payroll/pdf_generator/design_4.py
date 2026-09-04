@@ -24,6 +24,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
 from ..models import PayslipRecord
+from .text_fit import draw_block, draw_fitted
 
 try:
     from PIL import Image as PILImage
@@ -230,16 +231,15 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:
 
     if not drawn_logo:
         client_name = (client.name or 'COMPANY').strip()
-        c.setFont(_BOLD, 22)
         c.setFillColor(colors.HexColor('#007cc3'))
-        c.drawCentredString(W / 2, y - 6 * mm, client_name)
-        y -= 9 * mm
+        y = draw_block(c, W / 2, y - 6 * mm, client_name, _BOLD, 22, content_w,
+                       max_lines=2, min_size=11, align='center') - 1 * mm
 
     # Address
-    address_line = (client.address or 'CORPORATE OFFICE').splitlines()[0].upper()
-    c.setFont(_FONT, 8.5)
+    address_text = (client.address or 'CORPORATE OFFICE').upper()
     c.setFillColor(colors.HexColor('#1f2937'))
-    c.drawCentredString(W / 2, y, address_line)
+    y = draw_block(c, W / 2, y, address_text, _FONT, 8.5, content_w,
+                   max_lines=2, min_size=6.5, align='center') + 8.5 * 1.25
 
     # Double horizontal line below header
     y -= 5 * mm
@@ -320,17 +320,15 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:
         c.setFillColor(colors.HexColor('#1f2937'))
         c.drawString(x0 + 2.5 * mm, text_y, l1)
 
-        # Col 2
-        c.setFont(_BOLD, 8.5)
-        c.drawString(x1 + 2.5 * mm, text_y, str(v1))
+        # Col 2 — fitted to the ruled cell so long values stay inside it.
+        draw_fitted(c, x1 + 2.5 * mm, text_y, str(v1), _BOLD, 8.5, col2_w - 5 * mm, min_size=5.8)
 
         # Col 3
         c.setFont(_FONT, 8.5)
         c.drawString(x2 + 2.5 * mm, text_y, l2)
 
         # Col 4
-        c.setFont(_BOLD, 8.5)
-        c.drawString(x3 + 2.5 * mm, text_y, str(v2))
+        draw_fitted(c, x3 + 2.5 * mm, text_y, str(v2), _BOLD, 8.5, col4_w - 5 * mm, min_size=5.8)
 
         curr_row_y = row_bottom
 

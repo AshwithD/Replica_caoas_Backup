@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   Building2, Mail, Pencil, Upload, UserPlus, Users, Layers,
   Info, IndianRupee, Phone, CreditCard, Receipt, Hash, Landmark,
-  MapPin, ClipboardList, Palette,
+  MapPin, ClipboardList, Palette, Image as ImageIcon,
 } from "lucide-react";
 import { useClient, useBatches, useEmailLogs } from "../_kit/hooks/hooks";
 import { Badge, Button, Card, ErrorState, Skeleton } from "../_kit/components/primitives";
@@ -110,16 +110,24 @@ function ClientDetailsTab({ client, batches, emailsSent, emailsFailed, onEdited 
           </Button>
         </div>
 
+        {/* One single section: the Client-module identity fields (read-only
+            here — they're owned by the Client module) followed by the
+            payroll-owned ClientProfile fields, which are what the Edit
+            button above actually edits. */}
         <div className="grid gap-5 p-5 sm:grid-cols-2">
-          <InfoField label="CLIENT NAME"          value={client.name}                   required icon={Building2} />
-          <InfoField label="EMAIL"                value={client.email}                           icon={Mail} />
-          <InfoField label="PHONE"                value={client.phone}                           icon={Phone} />
-          <InfoField label="PAN"                  value={client.pan}                             icon={CreditCard} />
-          <InfoField label="GSTIN"                value={client.gstin}                           icon={Receipt} />
-          <InfoField label="TAN"                  value={client.tan}                             icon={Hash} />
+          <InfoField label="CLIENT NAME"           value={client.name}                  required icon={Building2} />
+          <InfoField label="EMAIL"                 value={client.email}                          icon={Mail} />
+          <InfoField label="PHONE"                 value={client.phone}                          icon={Phone} />
+          <InfoField label="PAN"                   value={client.pan}                            icon={CreditCard} />
+          <InfoField label="GSTIN"                 value={client.gstin}                          icon={Receipt} />
+          <InfoField label="TAN"                   value={client.tan}                            icon={Hash} />
+          <InfoField label="ADDRESS"               value={client.address}                        icon={MapPin} />
+          <InfoField label="PAYROLL EMAIL"         value={client.payroll_email || client.email}  icon={Mail} />
           <InfoField label="PF ESTABLISHMENT CODE" value={client.pf_establishment_code}          icon={Landmark} />
-          <InfoField label="ADDRESS"              value={client.address}                         icon={MapPin} />
+          <InfoField label="PAYSLIP DESIGN"        value={client.pdf_design ? `Design ${client.pdf_design}` : "—"} icon={Palette} />
+          <InfoField label="PAYSLIP LOGO"          value={client.logo ? "Uploaded" : "Not uploaded"} icon={ImageIcon} />
         </div>
+
       </Card>
 
       {editing && (

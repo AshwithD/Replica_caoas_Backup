@@ -177,11 +177,19 @@ export default function PayrollWorkspace() {
 
   const clientsQuery = useClients();
   const allClients = Array.isArray(clientsQuery.data) ? clientsQuery.data : clientsQuery.data?.results || [];
-  // Payroll Workspace only ever runs payroll for active clients — an
-  // inactive client (toggled off in Firm Details) simply drops out of this
-  // list here, without being deleted or altered; re-activating it in Firm
-  // Details is what brings it back.
-  const clients = allClients.filter((c) => c.is_active !== false);
+  // Payroll Workspace only ever runs payroll for ACTIVE payroll clients.
+  //
+  // `is_active` alone is not that condition — it is only the payroll toggle
+  // (ClientProfile.payroll_is_active). The master clients.Client.is_active
+  // flag is a hard kill-switch on top of it, so a client deactivated in the
+  // Client module was still being counted here (and shown in the list) as an
+  // active payroll client. Filter on the effective value instead, falling
+  // back to the old field for any API response that predates it.
+  const isActivePayrollClient = (c) =>
+    c.is_effectively_active !== undefined
+      ? c.is_effectively_active === true
+      : c.is_active === true;
+  const clients = allClients.filter(isActivePayrollClient);
   const statsQuery = useOverviewStats();
   const stats = statsQuery.data;
   const batchesQuery = useBatches({});
@@ -205,7 +213,10 @@ export default function PayrollWorkspace() {
   const overviewStatCards = (
     <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
       <DashboardStatCard icon={Building2}     value={clients.length}   label="Clients"
-        subtext="active payroll clients" tone="slate"  onClick={() => navigate("/payroll/firm-details")} />
+        subtext="active payroll clients" tone="slate"
+        /* Carry the card's own condition into the list, otherwise the
+           drill-down showed every client including deactivated ones. */
+        onClick={() => navigate("/payroll/firm-details?status=active")} />
       <DashboardStatCard icon={Layers}        value={totalBatches}     label="Total Batches"
         subtext="all batches"            tone="blue"   onClick={openBatches} />
       <DashboardStatCard icon={Loader2}       value={inProgress}       label="In Progress"

@@ -25,6 +25,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
 from ..models import PayslipRecord
+from .text_fit import draw_block, draw_fitted
 
 try:
     from PIL import Image as PILImage
@@ -248,7 +249,7 @@ def _logo(c, client, x, y, max_w, max_h):
                 ratio = min(max_w/iw, max_h/ih); w,h=iw*ratio,ih*ratio
                 c.drawImage(ImageReader(io.BytesIO(data)),x+(max_w-w)/2,y+(max_h-h)/2,w,h,mask='auto'); return
         except Exception: pass
-    c.setFont(_BOLD,12); c.setFillColor(colors.white); c.drawCentredString(x+max_w/2,y+max_h/2-4,(client.name or 'COMPANY').upper()[:13])
+    c.setFillColor(colors.white); draw_fitted(c, x+max_w/2, y+max_h/2-4, (client.name or 'COMPANY').upper(), _BOLD, 12, max_w-4, min_size=6, align='center')
 
 
 def _structure(record):
@@ -277,7 +278,12 @@ def _draw_detail_row(c, y, left, right, icon, label, value):
     # both label and value therefore sit level with their icon in every row.
     baseline = y + 6.0 * mm
     c.setFont(_BOLD,8.15); c.setFillColor(colors.HexColor('#1b355d')); c.drawString(left+9.5*mm, baseline, label)
-    c.setFont(_FONT,8.35); c.setFillColor(colors.HexColor(_TEXT)); c.drawString(left+48*mm, baseline, str(value))
+    # Value cell is fitted to the remaining column width, so long employee
+    # names / emails shrink instead of running into the next column.
+    c.setFillColor(colors.HexColor(_TEXT))
+    draw_block(c, left + 44 * mm, baseline, str(value), _FONT, 8.35,
+               max(right - (left + 44 * mm), 10), max_lines=2, min_size=6,
+               leading_ratio=1.05)
     # The separator is centred in the whitespace between rows—not below the
     # following row's text—and begins after the icon tile.
     c.setStrokeColor(colors.HexColor(_GRID)); c.setLineWidth(.55)
@@ -335,8 +341,26 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:  # noqa: 
     c.setFillColor(colors.HexColor(_NAVY)); c.rect(0,H-32*mm,W,32*mm,stroke=0,fill=1)
     c.setFillColor(colors.HexColor(_NAVY2)); p=c.beginPath(); p.moveTo(W*.62,H);p.lineTo(W,H);p.lineTo(W,H-32*mm);p.lineTo(W*.76,H-32*mm);p.close();c.drawPath(p,stroke=0,fill=1)
     _logo(c,client,10*mm,H-26*mm,42*mm,17*mm); c.setStrokeColor(colors.HexColor('#6680a4')); c.line(58*mm,H-27*mm,58*mm,H-7*mm)
-    c.setFont(_BOLD,14);c.setFillColor(colors.white);c.drawString(68*mm,H-14*mm,(client.name or '').upper())
-    _icon(c,'map-pin',68*mm,H-25*mm,5*mm,'#cfe0fa');c.setFont(_FONT,8.5);c.setFillColor(colors.HexColor('#e3ecfa'));c.drawString(75*mm,H-22.5*mm,(client.address or 'Chartered Accountants').splitlines()[0])
+    # Header text is fitted, never hardcoded: a very long client name (or a
+    # long address) must shrink/wrap inside its own box instead of running
+    # under the right-hand "SALARY SLIP" block or off the sheet.
+    _right_block_w = max(
+        c.stringWidth('SALARY SLIP', _BOLD, 19),
+        c.stringWidth(f'{calendar.month_name[batch.month].upper()} {batch.year}', _BOLD, 10.5),
+    )
+    _hdr_x = 68 * mm
+    _hdr_w = (W - 10 * mm - _right_block_w - 6 * mm) - _hdr_x
+    c.setFillColor(colors.white)
+    # Wraps to a second line before it shrinks, so a 60-character company
+    # name stays readable instead of being ellipsized down to nothing.
+    draw_block(c, _hdr_x, H - 13 * mm, (client.name or '').upper(), _BOLD, 14,
+               _hdr_w, max_lines=2, min_size=8.5, leading_ratio=1.15)
+    _icon(c, 'map-pin', 68 * mm, H - 25 * mm, 5 * mm, '#cfe0fa')
+    c.setFillColor(colors.HexColor('#e3ecfa'))
+    draw_block(
+        c, 75 * mm, H - 22.5 * mm, (client.address or 'Chartered Accountants'),
+        _FONT, 8.5, _hdr_w - 7 * mm, max_lines=2, min_size=6.2,
+    )
     c.setFont(_BOLD,19);c.setFillColor(colors.white);c.drawRightString(W-10*mm,H-14*mm,'SALARY SLIP');c.setFont(_BOLD,10.5);c.setFillColor(colors.HexColor('#72b2ff'));c.drawRightString(W-10*mm,H-22*mm,f'{calendar.month_name[batch.month].upper()} {batch.year}')
 
     # Employee details card.

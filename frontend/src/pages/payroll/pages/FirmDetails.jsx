@@ -1,155 +1,21 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Building2, Mail, Phone, FileText, Pencil, Palette, Search } from "lucide-react";
-import { Badge, Button, Card, ErrorState, Input, Modal, Skeleton, Textarea } from "../_kit/components/primitives";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { Building2, Mail, Phone, FileText, Pencil, Search } from "lucide-react";
+import { Badge, Button, Card, ErrorState, Input, Skeleton } from "../_kit/components/primitives";
 import { useClients, useAppMutations } from "../_kit/hooks/hooks";
 import PageHero from "../_kit/components/PageHero";
 import EmptyState from "../_kit/components/EmptyState";
 import Breadcrumb from "../_kit/components/Breadcrumb";
-import ChooseDesignModal from "../modals/ChooseDesignModal";
+import ClientFormModal from "../modals/PayrollSettingsModal";
 
-const FIELDS = [
-  ["name", "Client Name", "text"],
-  ["email", "Email", "email"],
-  ["payroll_email", "Payroll Email (optional — defaults to Email)", "email"],
-  ["phone", "Phone", "text"],
-  ["pan", "PAN", "text"],
-  ["tan", "TAN", "text"],
-  ["gstin", "GSTIN", "text"],
-  ["pf_establishment_code", "PF Establishment Code", "text"],
-];
-
-export function ClientFormModal({ client, onClose, onSaved }) {
-  const { mutateSaveClient } = useAppMutations();
-  const [form, setForm] = useState({
-    name: client?.name || "",
-    email: client?.email || "",
-    payroll_email: client?.payroll_email || "",
-    phone: client?.phone || "",
-    pan: client?.pan || "",
-    tan: client?.tan || "",
-    gstin: client?.gstin || "",
-    pf_establishment_code: client?.pf_establishment_code || "",
-    address: client?.address || "",
-  });
-  const [logoFile, setLogoFile] = useState(null);
-  const [design, setDesign] = useState(client?.pdf_design || 1);
-  const [choosingDesign, setChoosingDesign] = useState(false);
-  const [error, setError] = useState("");
-
-  const save = async () => {
-    if (!form.name.trim()) {
-      setError("Client name is required.");
-      return;
-    }
-    setError("");
-    try {
-      const body = new FormData();
-      Object.entries(form).forEach(([k, v]) => body.append(k, v ?? ""));
-      if (logoFile) body.append("logo", logoFile);
-      body.append("pdf_design", design);
-      await mutateSaveClient.mutateAsync({ id: client?.id, formData: body });
-      onSaved();
-    } catch (err) {
-      setError(err?.response?.data?.detail || "Failed to save client details.");
-    }
-  };
-
-  return (
-    <Modal title={client ? "Edit Client" : "Add Client"} onClose={onClose} size="m">
-      <div className="space-y-4">
-        <div className="flex items-center gap-4">
-          <div
-            className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-lg shrink-0"
-            style={{ background: "var(--surface-3)", border: "1px solid var(--border-3)" }}
-          >
-            {logoFile ? (
-              <img src={URL.createObjectURL(logoFile)} alt="logo preview" className="h-full w-full object-contain p-1" />
-            ) : client?.logo ? (
-              <img src={client.logo} alt="client logo" className="h-full w-full object-contain p-1" />
-            ) : (
-              <Building2 size={22} style={{ color: "var(--text-muted)" }} />
-            )}
-          </div>
-          <div>
-            <label className="text-xs font-medium block mb-1" style={{ color: "var(--text-secondary)" }}>
-              Client Logo
-            </label>
-            <input type="file" accept="image/*" onChange={(e) => setLogoFile(e.target.files?.[0] || null)} className="text-xs" />
-          </div>
-        </div>
-
-        <div className="grid gap-3 md:grid-cols-2">
-          {FIELDS.map(([key, label, type]) => (
-            <div key={key} className="space-y-1">
-              <label className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
-                {label}
-              </label>
-              <Input type={type} value={form[key]} onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} />
-            </div>
-          ))}
-        </div>
-
-        <div className="space-y-1">
-          <label className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
-            Address
-          </label>
-          <Textarea rows={3} value={form.address} onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))} />
-        </div>
-
-        <div className="space-y-2">
-          <div className="flex items-baseline justify-between">
-            <label className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
-              Payslip Design
-            </label>
-            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-              Design {design} selected
-            </span>
-          </div>
-          <div className="flex items-center justify-between gap-3 rounded-lg px-3 py-2.5" style={{ background: "var(--surface-3)", border: "1px solid var(--border-3)" }}>
-            <span className="text-sm" style={{ color: "var(--text-primary)" }}>
-              Design {design}
-            </span>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => setChoosingDesign(true)}
-              disabled={!client}
-              title={client ? "Preview and pick a payslip design" : "Save the client first, then choose a design"}
-            >
-              <Palette size={13} /> Choose Design
-            </Button>
-          </div>
-          {!client && (
-            <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-              Design previews become available after the client is saved.
-            </p>
-          )}
-        </div>
-
-        {error && <p className="text-xs" style={{ color: "var(--red-text)" }}>{error}</p>}
-
-        <div className="flex justify-end gap-2 pt-1" style={{ borderTop: "1px solid var(--border-1)" }}>
-          <Button variant="secondary" onClick={onClose} disabled={mutateSaveClient.isPending}>Cancel</Button>
-          <Button onClick={save} disabled={mutateSaveClient.isPending}>
-            {mutateSaveClient.isPending ? "Saving…" : "Save Client"}
-          </Button>
-        </div>
-      </div>
-
-      {choosingDesign && client && (
-        <ChooseDesignModal
-          client={client}
-          onClose={() => setChoosingDesign(false)}
-          onSaved={(picked) => {
-            setDesign(picked ?? client?.pdf_design ?? 1);
-            setChoosingDesign(false);
-          }}
-        />
-      )}
-    </Modal>
-  );
-}
+/**
+ * Payroll never edits client identity (name/email/phone/PAN/TAN/GSTIN/
+ * address) — those belong to the Client module's `clients.Client` master
+ * row. Editing here only exposes the payroll-owned `ClientProfile` fields,
+ * so `ClientFormModal` is now just the payroll-settings modal, kept under
+ * its old name so existing imports keep working.
+ */
+export { default as ClientFormModal } from "../modals/PayrollSettingsModal";
 
 function ClientCard({ client, onEdit, onToggleStatus, togglePending }) {
   return (
@@ -171,7 +37,9 @@ function ClientCard({ client, onEdit, onToggleStatus, togglePending }) {
             <h3 className="text-base font-semibold truncate" style={{ color: "var(--text-strong)" }}>
               {client.name}
             </h3>
-            {client.is_active === false && <Badge tone="red">Inactive</Badge>}
+            {client.master_is_active === false
+              ? <Badge tone="red">Deactivated in Client module</Badge>
+              : client.is_active === false && <Badge tone="red">Payroll inactive</Badge>}
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-x-4 gap-y-1 text-sm">
             {client.address && (
@@ -233,15 +101,42 @@ export default function FirmDetails() {
   const [modalClient, setModalClient] = useState(undefined); // undefined = closed, null = "add new"
   const [query, setQuery] = useState("");
 
-  // Search only — the list keeps whatever order the API returns it in.
+  // The "Clients / active payroll clients" stat card links here with
+  // ?status=active, so the drill-down must apply the same condition the card
+  // counted with — previously it landed on the unfiltered list, which showed
+  // inactive clients too.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const status = searchParams.get("status") === "active" ? "active"
+    : searchParams.get("status") === "inactive" ? "inactive" : "all";
+  const setStatus = (next) => {
+    const p = new URLSearchParams(searchParams);
+    if (next === "all") p.delete("status"); else p.set("status", next);
+    setSearchParams(p, { replace: true });
+  };
+
+  // A client is an active payroll client only when BOTH the master
+  // clients.Client.is_active switch and the payroll toggle are on.
+  const isActivePayrollClient = (c) =>
+    c.is_effectively_active !== undefined
+      ? c.is_effectively_active === true
+      : c.is_active === true;
+
+  const statusFiltered = useMemo(() => {
+    if (status === "active") return list.filter(isActivePayrollClient);
+    if (status === "inactive") return list.filter((c) => !isActivePayrollClient(c));
+    return list;
+  }, [list, status]);
+
+  // Search on top of the status filter — the list keeps whatever order the
+  // API returns it in.
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return list;
-    return list.filter((c) =>
+    if (!q) return statusFiltered;
+    return statusFiltered.filter((c) =>
       ["name", "email", "payroll_email", "phone", "pan", "tan", "gstin"]
         .some((k) => String(c[k] || "").toLowerCase().includes(q))
     );
-  }, [list, query]);
+  }, [statusFiltered, query]);
 
   const toggleClientStatus = async (client) => {
     const nextActive = client.is_active === false ? true : false;
@@ -280,7 +175,29 @@ export default function FirmDetails() {
 
       {/* ── search ─────────────────────────────────────────────────────── */}
       {list.length > 0 && (
-        <div className="flex justify-end">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {/* Status filter — reflects/controls ?status= in the URL so the
+              stat-card drill-down is visible and undoable. */}
+          <div className="flex items-center gap-1 rounded-lg p-0.5"
+            style={{ background: "var(--surface-2)", border: "1px solid var(--border-3)" }}>
+            {[
+              { key: "all", label: `All (${list.length})` },
+              { key: "active", label: `Active (${list.filter(isActivePayrollClient).length})` },
+              { key: "inactive", label: `Inactive (${list.filter((c) => !isActivePayrollClient(c)).length})` },
+            ].map((opt) => (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => setStatus(opt.key)}
+                className="rounded-md px-2.5 py-1 text-xs font-medium transition-colors"
+                style={status === opt.key
+                  ? { background: "#001F5B", color: "var(--text-white)" }
+                  : { color: "var(--text-secondary)" }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
           <div className="relative w-full" style={{ maxWidth: 320 }}>
             <Search
               size={14}
@@ -302,7 +219,12 @@ export default function FirmDetails() {
         </Card>
       ) : visible.length === 0 ? (
         <Card className="p-5">
-          <EmptyState emoji="🔍" message={`No client matches “${query}”.`} />
+          <EmptyState
+            emoji="🔍"
+            message={query
+              ? `No ${status === "all" ? "" : `${status} `}client matches “${query}”.`
+              : `No ${status} clients.`}
+          />
         </Card>
       ) : (
         <div className="space-y-3">

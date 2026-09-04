@@ -15,6 +15,8 @@ from django.conf import settings
 from django.contrib.auth.hashers import check_password, make_password
 from django.db import models
 
+from utils.encryption import decrypt_text, encrypt_text
+
 from ..mixins import AuditableMixin
 
 
@@ -47,6 +49,14 @@ class PortalUser(models.Model):
     is_active = models.BooleanField(default=True)
     must_change_password = models.BooleanField(default=True)
     auth_token_hash = models.CharField(max_length=64, blank=True, default="")
+    # Recoverable copy of the password so payroll staff — who set these
+    # credentials on the client's behalf and have to hand them over — can
+    # read the current password back in the admin UI. `password` above stays
+    # the authoritative hash and is what logins check; this is stored
+    # Fernet-encrypted (same scheme as clients.Client's financial fields) and
+    # is only ever exposed through the internal admin serializer, never to
+    # the portal itself.
+    _password_plain = models.TextField(blank=True, default="", db_column="password_plain")
     last_login = models.DateTimeField(null=True, blank=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -63,8 +73,20 @@ class PortalUser(models.Model):
         db_table = "payroll_portal_users"
         ordering = ["email"]
 
+    @property
+    def password_plain(self) -> str:
+        """The current password in clear text, or "" if it predates this field."""
+        if not self._password_plain:
+            return ""
+        try:
+            return decrypt_text(self._password_plain) or ""
+        except Exception:
+            # Key rotated or corrupt ciphertext — behave like "unknown".
+            return ""
+
     def set_password(self, raw_password: str) -> None:
         self.password = make_password(raw_password)
+        self._password_plain = encrypt_text(raw_password) if raw_password else ""
 
     def check_password(self, raw_password: str) -> bool:
         return check_password(raw_password, self.password)

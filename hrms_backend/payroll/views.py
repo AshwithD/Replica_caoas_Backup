@@ -939,12 +939,31 @@ class PayslipRecordViewSet(AuditViewMixin, viewsets.ModelViewSet):
         # way to re-notify them. Individual EMAIL_SENT records are blocked
         # too, in case a batch is ever partially sent (SENDING with some
         # records already delivered).
-        if record.batch.status == PayrollBatch.STATUS_COMPLETED or record.status == PayslipRecord.STATUS_EMAIL_SENT:
+        # ...unless the caller explicitly asks for a POST-SEND CORRECTION
+        # (Employee Workspace → Payslips → "Edit Details"). Real payroll
+        # runs do produce mistakes that are only spotted after the mail has
+        # gone out, and the fix has to be per-employee — not a whole-batch
+        # regeneration. In that mode the edit is allowed, every changed
+        # field is still written to PayslipRecordEdit (full audit trail),
+        # and the record is pushed back to DRAFT so its now-stale PDF must
+        # be regenerated and re-sent before it counts as delivered again.
+        correction = str(
+            request.data.get("post_send_correction")
+            or request.query_params.get("post_send_correction")
+            or ""
+        ).lower() in {"1", "true", "yes"}
+        already_sent = (
+            record.batch.status == PayrollBatch.STATUS_COMPLETED
+            or record.status == PayslipRecord.STATUS_EMAIL_SENT
+        )
+        if already_sent and not correction:
             raise PermissionDenied(
-                "This payslip has already been emailed and can no longer be edited."
+                "This payslip has already been emailed and can no longer be edited. "
+                "Use a post-send correction from the Employee Workspace if it must be fixed."
             )
 
-        serializer = self.get_serializer(record, data=request.data, partial=True)
+        payload = {k: v for k, v in request.data.items() if k != "post_send_correction"}
+        serializer = self.get_serializer(record, data=payload, partial=True)
         serializer.is_valid(raise_exception=True)
 
         changed_fields = []
@@ -1022,6 +1041,11 @@ class PayslipRecordViewSet(AuditViewMixin, viewsets.ModelViewSet):
                     ]
                 )
                 record.edit_count += len(changed_fields)
+                if already_sent:
+                    # The emailed PDF no longer matches the stored figures —
+                    # force the "regenerate PDF → send email" steps again.
+                    record.status = PayslipRecord.STATUS_DRAFT
+                    update_fields.append("status")
                 record.save(update_fields=update_fields)
 
         return Response(self.get_serializer(record).data)
@@ -1034,9 +1058,22 @@ class PayslipRecordViewSet(AuditViewMixin, viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"], url_path="resend")
     def resend(self, request, pk=None):
+        """Send (or re-send) THIS employee's payslip only.
+
+        Used both by Batch Review and by the Employee Workspace's
+        per-employee "Send Email" step. If the PDF was never generated (or
+        was invalidated by a post-send correction) it is rendered first, so
+        the mail always carries the current figures rather than a stale
+        attachment.
+        """
         record = self.get_object()
+        if not record.pdf_path or not Path(record.pdf_path).exists():
+            generate_payslip_pdf(record)
+            record.refresh_from_db()
         success, message = send_payslip_email(record, request.user)
-        return Response({"success": success, "message": message})
+        return Response(
+            {"success": success, "message": message, "record": self.get_serializer(record).data}
+        )
 
     @action(detail=True, methods=["get"], url_path="download-pdf")
     def download_pdf(self, request, pk=None):

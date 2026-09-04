@@ -5,6 +5,7 @@ import {
   Download, FileText, TrendingUp, Wallet, Calendar, Pencil,
   User, Info as InfoIcon, Layers, Receipt, Briefcase,
   Building2, Mail, CircleDot, IndianRupee, Clock, CalendarClock, Lock, History,
+  RefreshCw, Send, CheckCircle2, AlertCircle,
 } from "lucide-react";
 import { Badge, Button, Card, ErrorState, Skeleton } from "../_kit/components/primitives";
 import Breadcrumb from "../_kit/components/Breadcrumb";
@@ -13,6 +14,7 @@ import { api, apiPath } from "../_kit/api/client";
 import { useAdjustmentHistory, useClients, useEmployeeRecords, usePendingAdjustments, useSalaryStructureHistory, useAppMutations } from "../_kit/hooks/hooks";
 import { EmployeeFormModal } from "./EmployeesList";
 import SalaryStructureModal from "../modals/SalaryStructureModal";
+import PayslipCorrectionModal from "../modals/PayslipCorrectionModal";
 import { LedgerAdjustmentModal, LEDGER_TYPE_CONFIG, formatBalanceValue } from "../_kit/components/LedgerAdjustmentModal";
 
 const STRUCTURE_ROWS = [
@@ -251,13 +253,36 @@ function EmployeeDetailsTab({ emp, clientName, totalPayslips, emailSent, totalPa
   );
 }
 
-/* ── "Payslips" tab body ───────────────────────────────────────────── */
-function PayslipsTab({ records, recordsLoading, onDownload }) {
+/* ── "Payslips" tab body ───────────────────────────────────────────────
+   Per-employee payslip lifecycle, deliberately separated into three
+   explicit steps — Edit Details → Regenerate PDF → Send Email — because
+   corrections routinely surface AFTER the batch mail has gone out and the
+   fix must be scoped to this one employee, never a whole-batch re-run.  */
+function PayslipsTab({ records, recordsLoading, onDownload, onEdit, onRegenerate, onSend, busyId, feedback }) {
   return (
     <Card className="p-4">
-      <h3 className="text-sm font-semibold mb-2" style={{ color: "var(--text-strong)" }}>
-        Payslips
-      </h3>
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-sm font-semibold" style={{ color: "var(--text-strong)" }}>
+          Payslips
+        </h3>
+        <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+          Edit, regenerate and email a single month for this employee only.
+        </span>
+      </div>
+
+      {feedback && (
+        <div
+          className="flex items-center gap-2 rounded-lg px-3 py-2 text-xs mb-2"
+          style={
+            feedback.ok
+              ? { background: "var(--green-bg-subtle)", border: "1px solid var(--green-border)", color: "var(--green-text)" }
+              : { background: "var(--red-bg-subtle)", border: "1px solid var(--red-border)", color: "var(--red-text)" }
+          }
+        >
+          {feedback.ok ? <CheckCircle2 size={13} /> : <AlertCircle size={13} />} {feedback.message}
+        </div>
+      )}
+
       {recordsLoading ? (
         <Skeleton className="h-24 w-full" />
       ) : records.length === 0 ? (
@@ -268,7 +293,7 @@ function PayslipsTab({ records, recordsLoading, onDownload }) {
           <div
             className="grid items-center px-3 py-1.5 text-xs font-semibold tracking-wide"
             style={{
-              gridTemplateColumns: "1.2fr 1fr 1fr 0.8fr",
+              gridTemplateColumns: "1.1fr 0.9fr 0.9fr 2.2fr",
               background: "var(--surface-2)",
               borderBottom: "1px solid var(--border-1)",
               color: "var(--text-muted)",
@@ -277,42 +302,54 @@ function PayslipsTab({ records, recordsLoading, onDownload }) {
             <span>MONTH / YEAR</span>
             <span>STATUS</span>
             <span className="text-right">AMOUNT</span>
-            <span className="text-right">PDF</span>
+            <span className="text-right">ACTIONS</span>
           </div>
 
-          {records.map((r, i) => (
-            <div
-              key={r.id}
-              className="grid items-center px-3 py-2 text-sm"
-              style={{
-                gridTemplateColumns: "1.2fr 1fr 1fr 0.8fr",
-                borderTop: i === 0 ? "none" : "1px solid var(--border-1)",
-              }}
-            >
-              <span className="font-medium" style={{ color: "var(--text-strong)" }}>
-                {MONTHS[(r.batch_month || 1) - 1]} {r.batch_year}
-              </span>
-              <span>
-                <Badge tone={recordStatusTone[r.status] || "slate"}>{r.status}</Badge>
-              </span>
-              <span className="text-right tabular-nums" style={{ color: "var(--text-secondary)" }}>
-                {formatCurrency(r.net_salary)}
-              </span>
-              <span className="text-right">
-                {r.pdf_path ? (
-                  <button
-                    className="inline-flex items-center gap-1 text-xs font-medium hover:underline"
-                    style={{ color: "var(--blue-text)" }}
-                    onClick={() => onDownload(r.id, { month: r.batch_month, year: r.batch_year })}
-                  >
-                    <Download size={12} /> PDF
-                  </button>
-                ) : (
-                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>—</span>
-                )}
-              </span>
-            </div>
-          ))}
+          {records.map((r, i) => {
+            const busy = busyId === r.id;
+            return (
+              <div
+                key={r.id}
+                className="grid items-center px-3 py-2 text-sm"
+                style={{
+                  gridTemplateColumns: "1.1fr 0.9fr 0.9fr 2.2fr",
+                  borderTop: i === 0 ? "none" : "1px solid var(--border-1)",
+                }}
+              >
+                <span className="font-medium" style={{ color: "var(--text-strong)" }}>
+                  {MONTHS[(r.batch_month || 1) - 1]} {r.batch_year}
+                </span>
+                <span>
+                  <Badge tone={recordStatusTone[r.status] || "slate"}>{r.status}</Badge>
+                </span>
+                <span className="text-right tabular-nums" style={{ color: "var(--text-secondary)" }}>
+                  {formatCurrency(r.net_salary)}
+                </span>
+                <span className="flex flex-wrap items-center justify-end gap-1.5">
+                  <Button size="sm" variant="secondary" disabled={busy} onClick={() => onEdit(r)}>
+                    <Pencil size={12} /> Edit Details
+                  </Button>
+                  <Button size="sm" variant="secondary" disabled={busy} onClick={() => onRegenerate(r)}>
+                    <RefreshCw size={12} /> {busy ? "Working…" : "Render PDF"}
+                  </Button>
+                  <Button size="sm" disabled={busy} onClick={() => onSend(r)}>
+                    <Send size={12} /> {r.status === "EMAIL_SENT" ? "Resend Email" : "Send Email"}
+                  </Button>
+                  {r.pdf_path ? (
+                    <button
+                      className="inline-flex items-center gap-1 text-xs font-medium hover:underline px-1"
+                      style={{ color: "var(--blue-text)" }}
+                      onClick={() => onDownload(r.id, { month: r.batch_month, year: r.batch_year })}
+                    >
+                      <Download size={12} /> PDF
+                    </button>
+                  ) : (
+                    <span className="text-xs px-1" style={{ color: "var(--text-muted)" }}>no pdf</span>
+                  )}
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
     </Card>
@@ -457,6 +494,10 @@ export default function EmployeeWorkspace({ employeeId }) {
   const [showEditEmployee, setShowEditEmployee] = useState(false);
   const [showEditSalary, setShowEditSalary] = useState(false);
   const [ledgerModalOpen, setLedgerModalOpen] = useState(null);
+  // Per-employee payslip actions (edit → render PDF → send email)
+  const [editingRecord, setEditingRecord] = useState(null);
+  const [payslipBusyId, setPayslipBusyId] = useState(null);
+  const [payslipFeedback, setPayslipFeedback] = useState(null);
 
   const fetchEmployee = () => {
     setEmpState((s) => ({ ...s, isLoading: true, isError: false }));
@@ -490,6 +531,51 @@ export default function EmployeeWorkspace({ employeeId }) {
       fetchEmployee();
     } catch (err) {
       console.error("Failed to update employee status:", err);
+    }
+  };
+
+  // ── Per-employee payslip actions ───────────────────────────────────
+  // Deliberately three separate steps rather than one "send" button: a
+  // correction after the batch mail went out needs the data fixed, the PDF
+  // re-rendered from the corrected figures, and only then the mail resent —
+  // for THIS employee alone, never the whole batch.
+  const regeneratePDF = async (record) => {
+    setPayslipBusyId(record.id);
+    setPayslipFeedback(null);
+    try {
+      await api.post(apiPath(`records/${record.id}/regenerate-pdf/`));
+      await recordsQuery.refetch();
+      setPayslipFeedback({ ok: true, message: "Payslip PDF regenerated with the current figures." });
+    } catch (err) {
+      setPayslipFeedback({
+        ok: false,
+        message: err?.response?.data?.detail || "Failed to regenerate the payslip PDF.",
+      });
+    } finally {
+      setPayslipBusyId(null);
+    }
+  };
+
+  const sendEmail = async (record) => {
+    setPayslipBusyId(record.id);
+    setPayslipFeedback(null);
+    try {
+      // The backend renders the PDF first if it is missing/stale, so the
+      // employee never receives an out-of-date attachment.
+      const res = await api.post(apiPath(`records/${record.id}/resend/`));
+      const { success, message } = res.data || {};
+      await recordsQuery.refetch();
+      setPayslipFeedback({
+        ok: !!success,
+        message: success ? "Payslip emailed to this employee." : message || "Failed to send the payslip email.",
+      });
+    } catch (err) {
+      setPayslipFeedback({
+        ok: false,
+        message: err?.response?.data?.detail || "Failed to send the payslip email.",
+      });
+    } finally {
+      setPayslipBusyId(null);
     }
   };
 
@@ -636,6 +722,11 @@ export default function EmployeeWorkspace({ employeeId }) {
           records={records}
           recordsLoading={recordsQuery.isLoading}
           onDownload={downloadPDF}
+          onEdit={(r) => { setPayslipFeedback(null); setEditingRecord(r); }}
+          onRegenerate={regeneratePDF}
+          onSend={sendEmail}
+          busyId={payslipBusyId}
+          feedback={payslipFeedback}
         />
       )}
 
@@ -667,6 +758,22 @@ export default function EmployeeWorkspace({ employeeId }) {
             setShowEditSalary(false);
             fetchEmployee();
             historyQuery.refetch();
+          }}
+        />
+      )}
+
+      {editingRecord && (
+        <PayslipCorrectionModal
+          record={editingRecord}
+          employeeName={emp.full_name}
+          onClose={() => setEditingRecord(null)}
+          onSaved={() => {
+            setEditingRecord(null);
+            recordsQuery.refetch();
+            setPayslipFeedback({
+              ok: true,
+              message: "Payslip updated. Render the PDF again, then send the email to this employee.",
+            });
           }}
         />
       )}

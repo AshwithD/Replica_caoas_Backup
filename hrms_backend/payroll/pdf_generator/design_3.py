@@ -24,6 +24,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
 from ..models import PayslipRecord
+from .text_fit import draw_block, draw_fitted
 
 try:
     from PIL import Image as PILImage
@@ -210,6 +211,7 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:
     _profile = getattr(client, 'payroll_profile', None)
     logo = getattr(_profile, 'payroll_logo', None) if _profile else None
     drawn_logo = False
+    name_bottom = None
     if logo and PILImage and getattr(logo, 'path', None) and Path(logo.path).exists():
         try:
             data = resized_logo_bytes(logo.path)
@@ -226,15 +228,24 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:
 
     if not drawn_logo:
         client_name = (client.name or 'COMPANY').strip()
-        c.setFont(_BOLD, 22)
+        # Reserve everything left of the right-hand SALARY SLIP / month pill.
+        name_w = content_w - 42 * mm
         c.setFillColor(colors.HexColor(CYAN_ACCENT))
-        c.drawString(margin, header_y - 8 * mm, client_name)
+        # Track the block's real bottom so the address sits BELOW the wrapped
+        # name instead of at a fixed offset that a 2-line name overlaps.
+        # 13pt max keeps a 2-line name inside the fixed header band, so the
+        # address below and the details card keep their exact positions.
+        name_bottom = draw_block(c, margin, header_y - 6 * mm, client_name, _BOLD, 22,
+                                 name_w, max_lines=2, min_size=9, leading_ratio=1.1)
 
     # Address / Subtitle
-    address_line = (client.address or 'CORPORATE OFFICE').splitlines()[0]
-    c.setFont(_FONT, 8)
+    address_text = (client.address or 'CORPORATE OFFICE')
     c.setFillColor(colors.HexColor('#7286a5'))
-    c.drawString(margin, header_y - 19 * mm, address_line)
+    # Fixed baseline: the header band is a constant height for every client,
+    # so nothing below it can ever be pushed off the page.
+    addr_y = header_y - 19 * mm
+    draw_block(c, margin, addr_y, address_text, _FONT, 7.5,
+               content_w - 46 * mm, max_lines=2, min_size=6.0, leading_ratio=1.15)
 
     # Header Right
     c.setFont(_BOLD, 8)
@@ -263,7 +274,10 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:
     # ----------------------------------------------------
     # Employee Details Card
     # ----------------------------------------------------
-    card1_top = header_y - 24 * mm
+    # The details card starts below whatever height the (possibly wrapped)
+    # name + address block actually consumed — never a fixed offset that a
+    # long client name would overlap.
+    card1_top = header_y - 27 * mm
     card1_h = 72 * mm
     card1_y = card1_top - card1_h
 
@@ -301,20 +315,21 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:
     row_y = card1_top - 16 * mm
     for (l_label, l_val), (r_label, r_val) in details_grid:
         # Left column
+        col_w = content_w / 2 - 9 * mm
         c.setFont(_BOLD, 6.8)
         c.setFillColor(colors.HexColor(SLATE_LABEL))
         c.drawString(left_col_x, row_y, l_label)
-        c.setFont(_BOLD, 8.5)
         c.setFillColor(colors.HexColor(TEXT_WHITE))
-        c.drawString(left_col_x, row_y - 4.2 * mm, str(l_val))
+        # Fitted so a long name/email can't spill into the right column.
+        draw_fitted(c, left_col_x, row_y - 4.2 * mm, str(l_val), _BOLD, 8.5, col_w, min_size=6)
 
         # Right column
         c.setFont(_BOLD, 6.8)
         c.setFillColor(colors.HexColor(SLATE_LABEL))
         c.drawString(right_col_x, row_y, r_label)
-        c.setFont(_BOLD, 8.5)
         c.setFillColor(colors.HexColor(TEXT_WHITE))
-        c.drawString(right_col_x, row_y - 4.2 * mm, str(r_val))
+        draw_fitted(c, right_col_x, row_y - 4.2 * mm, str(r_val), _BOLD, 8.5,
+                    (margin + content_w - 6 * mm) - right_col_x, min_size=6)
 
         row_y -= 9.2 * mm
 

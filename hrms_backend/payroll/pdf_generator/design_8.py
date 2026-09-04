@@ -26,6 +26,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 
 from ..models import PayslipRecord
+from .text_fit import draw_block, draw_fitted
 
 try:
     from PIL import Image as PILImage
@@ -311,15 +312,19 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:
 
     if not drawn_logo:
         client_name = (client.name or 'INFOSYS').strip()
-        c.setFont(_BOLD, 22)
         c.setFillColor(colors.HexColor('#007cc3'))
-        c.drawString(margin, logo_y - 8 * mm, client_name)
-        logo_bottom = logo_y - 12 * mm
+        # Capped at 2 lines with a tight leading so the name block always ends
+        # above the fixed address baseline below.
+        draw_block(c, margin, logo_y - 6 * mm, client_name, _BOLD, 22,
+                   content_w - 46 * mm, max_lines=2, min_size=10, leading_ratio=1.1)
+        logo_bottom = logo_y - 14 * mm
 
-    address_line = (client.address or 'BANASHANKARI, BANGALORE').splitlines()[0].upper()
-    c.setFont(_BOLD, 7.8)
+    address_text = (client.address or 'BANASHANKARI, BANGALORE').upper()
     c.setFillColor(colors.HexColor(TEXT_MAIN))
-    c.drawString(margin, logo_bottom - 4.5 * mm, address_line)
+    # Fixed baseline keeps the header a constant height for every client.
+    draw_block(c, margin, min(logo_bottom - 4.5 * mm, header_top - 18 * mm),
+               address_text, _BOLD, 7.8, content_w - 46 * mm,
+               max_lines=2, min_size=6.0, leading_ratio=1.2)
 
     c.setFont(_BOLD, 8)
     c.setFillColor(colors.HexColor(TEXT_MAIN))
@@ -347,7 +352,7 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:
     # ----------------------------------------------------
     # Employee Details Card - EXACT reference layout
     # ----------------------------------------------------
-    card1_top = header_top - 24 * mm
+    card1_top = header_top - 27 * mm
     card1_h = 80 * mm
     card1_y = card1_top - card1_h
 
@@ -396,17 +401,17 @@ def _build_pdf_bytes(record: PayslipRecord, encryption=None) -> bytes:
         c.setFont(_BOLD, 6.5)
         c.setFillColor(colors.HexColor(TEXT_MUTED))
         c.drawString(col1_x + 8 * mm, r_y + 1 * mm, l1)
-        c.setFont(_BOLD, 8.5)
         c.setFillColor(colors.HexColor(TEXT_MAIN))
-        c.drawString(col1_x + 8 * mm, r_y - 3 * mm, str(v1))
+        draw_fitted(c, col1_x + 8 * mm, r_y - 3 * mm, str(v1), _BOLD, 8.5,
+                    half_w - 10 * mm, min_size=6)
 
         _draw_icon(c, i2, col2_x, r_y - 2.5 * mm, 5.2 * mm, BORDER_COLOR)
         c.setFont(_BOLD, 6.5)
         c.setFillColor(colors.HexColor(TEXT_MUTED))
         c.drawString(col2_x + 8 * mm, r_y + 1 * mm, l2)
-        c.setFont(_BOLD, 8.5)
         c.setFillColor(colors.HexColor(TEXT_MAIN))
-        c.drawString(col2_x + 8 * mm, r_y - 3 * mm, str(v2))
+        draw_fitted(c, col2_x + 8 * mm, r_y - 3 * mm, str(v2), _BOLD, 8.5,
+                    half_w - 10 * mm, min_size=6)
 
         r_y -= step_y
 
